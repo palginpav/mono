@@ -14,10 +14,10 @@
 // distribute, sublicense, and/or sell copies of the Software, and to
 // permit persons to whom the Software is furnished to do so, subject to
 // the following conditions:
-// 
+//
 // The above copyright notice and this permission notice shall be
 // included in all copies or substantial portions of the Software.
-// 
+//
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
 // EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
 // MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
@@ -28,6 +28,7 @@
 //
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
 
@@ -123,6 +124,15 @@ namespace Mono.Security.Authenticode {
 		private int dirSecuritySize;
 		private int coffSymbolTableOffset;
 		private bool pe64;
+		private bool isMsi;
+
+		internal bool IsMsi {
+			get {
+				if (blockNo < 1)
+					ReadFirstBlock ();
+				return isMsi;
+			}
+		}
 
 		internal bool PE64 {
 			get {
@@ -191,7 +201,7 @@ namespace Mono.Security.Authenticode {
 		{
 			int error = ProcessFirstBlock ();
 			if (error != 0) {
-				string msg = Locale.GetText ("Cannot sign non PE files, e.g. .CAB or .MSI files (error {0}).", 
+				string msg = Locale.GetText ("Cannot sign non PE files, e.g. .CAB or .MSI files (error {0}).",
 					error);
 				throw new NotSupportedException (msg);
 			}
@@ -203,12 +213,20 @@ namespace Mono.Security.Authenticode {
 				return 1;
 
 			fs.Position = 0;
-			// read first block - it will include (100% sure) 
+			// read first block - it will include (100% sure)
 			// the MZ header and (99.9% sure) the PE header
 			blockLength = fs.Read (fileblock, 0, fileblock.Length);
 			blockNo = 1;
 			if (blockLength < 64)
 				return 2;	// invalid PE file
+
+			// Check for OLE Compound File (CFB) magic - used by MSI, MST, MSP files
+			if (blockLength >= 8 &&
+			    BitConverterLE.ToUInt32 (fileblock, 0) == 0xE011CFD0 &&
+			    BitConverterLE.ToUInt32 (fileblock, 4) == 0xA1B41AE1) {
+				isMsi = true;
+				return 0;
+			}
 
 			// 1. Validate the MZ header informations
 			// 1.1. Check for magic MZ at start of header
@@ -271,10 +289,13 @@ namespace Mono.Security.Authenticode {
 			return 0;
 		}
 
-		internal byte[] GetSecurityEntry () 
+		internal byte[] GetSecurityEntry ()
 		{
 			if (blockNo < 1)
 				ReadFirstBlock ();
+
+			if (isMsi)
+				return ReadMsiSignature ();
 
 			if (dirSecuritySize > 8) {
 				// remove header from size (not ASN.1 based)
@@ -298,7 +319,7 @@ namespace Mono.Security.Authenticode {
 			int addsize = 0;
 			// minus any authenticode signature (with 8 bytes header)
 			if (dirSecurityOffset > 0) {
-				// it is also possible that the signature block 
+				// it is also possible that the signature block
 				// starts within the block in memory (small EXE)
 				if (dirSecurityOffset < blockLength) {
 					blockLength = dirSecurityOffset;
@@ -315,7 +336,7 @@ namespace Mono.Security.Authenticode {
 				fileblock[PEOffset + 17] = 0;
 				fileblock[PEOffset + 18] = 0;
 				fileblock[PEOffset + 19] = 0;
-				// it is also possible that the signature block 
+				// it is also possible that the signature block
 				// starts within the block in memory (small EXE)
 				if (coffSymbolTableOffset < blockLength) {
 					blockLength = coffSymbolTableOffset;
@@ -327,7 +348,7 @@ namespace Mono.Security.Authenticode {
 				addsize = (int) (fs.Length & 7);
 				if (addsize > 0)
 					addsize = 8 - addsize;
-				
+
 				n = fs.Length - blockLength;
 			}
 
@@ -401,8 +422,181 @@ namespace Mono.Security.Authenticode {
 			return hash.Hash;
 		}
 
+		// OLE Compound File (CFB) parsing for MSI digital signature extraction
+
+		private const int CFB_END_OF_CHAIN = unchecked((int)0xFFFFFFFE);
+		private const int CFB_FREE_SECT = unchecked((int)0xFFFFFFFF);
+
+		private byte[] ReadMsiSignature ()
+		{
+			if (fs == null)
+				return null;
+
+			fs.Position = 0;
+			byte[] hdr = new byte [512];
+			if (fs.Read (hdr, 0, 512) < 512)
+				return null;
+
+			int sectorPow = BitConverterLE.ToUInt16 (hdr, 30);
+			int sectorSize = 1 << sectorPow;
+			int miniSectorPow = BitConverterLE.ToUInt16 (hdr, 32);
+			int miniSectorSize = 1 << miniSectorPow;
+			int miniCutoff = BitConverterLE.ToInt32 (hdr, 56);
+			int fatCount = BitConverterLE.ToInt32 (hdr, 44);
+			int dirStart = BitConverterLE.ToInt32 (hdr, 48);
+			int miniFatStart = BitConverterLE.ToInt32 (hdr, 60);
+
+			// Build FAT from DIFAT entries in header (109 entries at offsets 76-508)
+			int entriesPerSector = sectorSize / 4;
+			int totalFatEntries = fatCount * entriesPerSector;
+			int[] fat = new int [totalFatEntries];
+
+			for (int d = 0; d < 109 && d < fatCount; d++) {
+				int fatSect = BitConverterLE.ToInt32 (hdr, 76 + d * 4);
+				if (fatSect < 0 || fatSect == CFB_FREE_SECT)
+					break;
+				CfbReadFatSector (fat, d * entriesPerSector, fatSect, sectorSize);
+			}
+
+			// Search directory for \5DigitalSignature stream
+			string sigName = "\x0005DigitalSignature";
+			int rootStartSect = -1;
+			int sigStartSect = -1;
+			int sigStreamSize = 0;
+
+			int sect = dirStart;
+			while (sect >= 0 && sect != CFB_END_OF_CHAIN && sect < totalFatEntries) {
+				long sectorOffset = ((long)sect + 1) * sectorSize;
+				int dirEntries = sectorSize / 128;
+
+				for (int i = 0; i < dirEntries; i++) {
+					byte[] ent = new byte [128];
+					fs.Position = sectorOffset + i * 128;
+					if (fs.Read (ent, 0, 128) < 128)
+						break;
+
+					byte objType = ent [66];
+
+					// Root entry (type 5)
+					if (objType == 5 && rootStartSect < 0)
+						rootStartSect = BitConverterLE.ToInt32 (ent, 116);
+
+					if (objType == 2) {
+						int nameLen = BitConverterLE.ToUInt16 (ent, 64);
+						int charCount = (nameLen / 2) - 1;
+						if (charCount == sigName.Length) {
+							string name = System.Text.Encoding.Unicode.GetString (ent, 0, nameLen - 2);
+							if (name == sigName) {
+								sigStartSect = BitConverterLE.ToInt32 (ent, 116);
+								sigStreamSize = BitConverterLE.ToInt32 (ent, 120);
+								goto foundSignature;
+							}
+						}
+					}
+				}
+				sect = fat [sect];
+			}
+			return null;
+
+		foundSignature:
+			if (sigStreamSize == 0)
+				return null;
+
+			if (sigStreamSize < miniCutoff) {
+				int[] miniFat = CfbBuildMiniFat (fat, miniFatStart, sectorSize);
+				if (miniFat == null)
+					return null;
+				return CfbReadMiniStream (fat, miniFat, rootStartSect,
+					sectorSize, miniSectorSize, sigStartSect, sigStreamSize);
+			}
+			return CfbReadStream (fat, sigStartSect, sigStreamSize, sectorSize);
+		}
+
+		private void CfbReadFatSector (int[] fat, int offset, int sector, int sectorSize)
+		{
+			byte[] data = new byte [sectorSize];
+			fs.Position = ((long)sector + 1) * sectorSize;
+			fs.Read (data, 0, sectorSize);
+			int entries = sectorSize / 4;
+			for (int i = 0; i < entries && offset + i < fat.Length; i++)
+				fat [offset + i] = BitConverterLE.ToInt32 (data, i * 4);
+		}
+
+		private byte[] CfbReadStream (int[] fat, int startSect, int size, int sectorSize)
+		{
+			byte[] data = new byte [size];
+			int offset = 0;
+			int sect = startSect;
+
+			while (offset < size && sect >= 0 && sect != CFB_END_OF_CHAIN && sect < fat.Length) {
+				fs.Position = ((long)sect + 1) * sectorSize;
+				int toRead = System.Math.Min (sectorSize, size - offset);
+				if (fs.Read (data, offset, toRead) < toRead)
+					return null;
+				offset += toRead;
+				sect = fat [sect];
+			}
+			return offset >= size ? data : null;
+		}
+
+		private int[] CfbBuildMiniFat (int[] fat, int miniFatStart, int sectorSize)
+		{
+			int count = 0;
+			int sect = miniFatStart;
+			while (sect >= 0 && sect != CFB_END_OF_CHAIN && sect < fat.Length && count < 1000) {
+				count++;
+				sect = fat [sect];
+			}
+
+			int entriesPerSector = sectorSize / 4;
+			int[] miniFat = new int [count * entriesPerSector];
+			sect = miniFatStart;
+			int idx = 0;
+			while (sect >= 0 && sect != CFB_END_OF_CHAIN && sect < fat.Length) {
+				CfbReadFatSector (miniFat, idx, sect, sectorSize);
+				idx += entriesPerSector;
+				sect = fat [sect];
+			}
+			return miniFat;
+		}
+
+		private byte[] CfbReadMiniStream (int[] fat, int[] miniFat, int rootStartSect,
+			int sectorSize, int miniSectorSize, int startMiniSect, int size)
+		{
+			// Build root sector chain (mini-stream container)
+			var rootSectors = new List<int> ();
+			int sect = rootStartSect;
+			while (sect >= 0 && sect != CFB_END_OF_CHAIN && sect < fat.Length
+				&& rootSectors.Count < 100000) {
+				rootSectors.Add (sect);
+				sect = fat [sect];
+			}
+
+			byte[] data = new byte [size];
+			int offset = 0;
+			int miniSect = startMiniSect;
+
+			while (offset < size && miniSect >= 0 && miniSect != CFB_END_OF_CHAIN
+				&& miniSect < miniFat.Length) {
+				long miniOffset = (long)miniSect * miniSectorSize;
+				int containerIdx = (int)(miniOffset / sectorSize);
+				int containerOff = (int)(miniOffset % sectorSize);
+
+				if (containerIdx >= rootSectors.Count)
+					return null;
+
+				fs.Position = ((long)rootSectors [containerIdx] + 1) * sectorSize + containerOff;
+				int toRead = System.Math.Min (miniSectorSize, size - offset);
+				if (fs.Read (data, offset, toRead) < toRead)
+					return null;
+				offset += toRead;
+				miniSect = miniFat [miniSect];
+			}
+			return offset >= size ? data : null;
+		}
+
 		// for compatibility only
-		protected byte[] HashFile (string fileName, string hashName) 
+		protected byte[] HashFile (string fileName, string hashName)
 		{
 			try {
 				Open (fileName);

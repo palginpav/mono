@@ -218,36 +218,35 @@ namespace Mono.Security.Authenticode {
 			ASN1 spc = sd.ContentInfo.Content;
 			signedHash = spc [0][1][1];
 
-			HashAlgorithm ha = null; 
+			HashAlgorithm ha = null;
 			switch (signedHash.Length) {
 				case 16:
-					ha = MD5.Create (); 
-					hash = GetHash (ha);
+					ha = MD5.Create ();
 					break;
 				case 20:
 					ha = SHA1.Create ();
-					hash = GetHash (ha);
 					break;
 				case 32:
 					ha = SHA256.Create ();
-					hash = GetHash (ha);
 					break;
 				case 48:
 					ha = SHA384.Create ();
-					hash = GetHash (ha);
 					break;
 				case 64:
 					ha = SHA512.Create ();
-					hash = GetHash (ha);
 					break;
 				default:
 					reason = 5;
 					Close ();
 					return false;
 			}
+
+			if (!IsMsi) {
+				hash = GetHash (ha);
+			}
 			Close ();
 
-			if (!signedHash.CompareValue (hash)) {
+			if (!IsMsi && !signedHash.CompareValue (hash)) {
 				reason = 2;
 			}
 
