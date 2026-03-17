@@ -37,9 +37,10 @@ using Win32 = System.Runtime.Remoting.Channels.Ipc.Win32;
 
 namespace System.Runtime.Remoting.Channels.Ipc
 {
-        public class IpcChannel : IChannelReceiver, IChannelSender, IChannel
+        public class IpcChannel : IChannelReceiver, IChannelSender, IChannel, ISecurableChannel
         {
                 IChannel _innerChannel;
+                bool _isSecured;
 
                 internal static bool IsUnix
                 {
@@ -116,6 +117,22 @@ namespace System.Runtime.Remoting.Channels.Ipc
                 {
                         ((IChannelReceiver)_innerChannel).StopListening (data);
                 }
+
+				public bool IsSecured
+				{
+					get
+					{
+						ISecurableChannel securable = _innerChannel as ISecurableChannel;
+						return securable != null ? securable.IsSecured : _isSecured;
+					}
+					set
+					{
+						_isSecured = value;
+						ISecurableChannel securable = _innerChannel as ISecurableChannel;
+						if (securable != null)
+							securable.IsSecured = value;
+					}
+				}
 
         }
 }

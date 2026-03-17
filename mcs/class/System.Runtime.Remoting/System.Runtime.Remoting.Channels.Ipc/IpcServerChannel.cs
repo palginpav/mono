@@ -40,6 +40,7 @@ namespace System.Runtime.Remoting.Channels.Ipc
         {
                 IChannelReceiver _innerChannel;
                 string _portName;
+                bool _isSecured;
 
                 public IpcServerChannel (string portName)
                 {
@@ -98,11 +99,11 @@ namespace System.Runtime.Remoting.Channels.Ipc
 				{
 					get
 					{
-						return true;
+						return _isSecured;
 					}
 					set
 					{
-						throw new NotImplementedException ();
+						_isSecured = value;
 					}
 				}
 

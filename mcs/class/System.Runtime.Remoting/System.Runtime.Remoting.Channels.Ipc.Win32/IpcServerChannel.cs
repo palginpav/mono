@@ -133,7 +133,7 @@ namespace System.Runtime.Remoting.Channels.Ipc.Win32
                             break;
 
                         case "impersonate":
-                            impersonate = Boolean.Parse((string)e.Value);
+                            impersonate = Convert.ToBoolean(e.Value);
                             break;
                     }
                 }
@@ -385,4 +385,3 @@ namespace System.Runtime.Remoting.Channels.Ipc.Win32
     }
 
 }
-

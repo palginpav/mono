@@ -111,6 +111,49 @@ namespace MonoTests.Remoting
 			}
 			Assert.IsTrue (found);
 		}
+
+		[Test]
+		public void TestCtor3WithBooleanImpersonate ()
+		{
+			string portName = "ipc" + Guid.NewGuid ().ToString ("N");
+			string url = String.Format ("ipc://{0}/server.rem", portName);
+
+			Hashtable props = new Hashtable ();
+			props ["portName"] = portName;
+			props ["impersonate"] = true;
+			IpcChannel chan = new IpcChannel (props, null, null);
+			string[] uris = chan.GetUrlsForUri ("server.rem");
+			Assert.IsNotNull (uris);
+			AssertHelper.Greater (uris.Length, 0);
+
+			bool found = false;
+			foreach (string s in uris) {
+				if (s == url) {
+					found = true;
+					break;
+				}
+			}
+			Assert.IsTrue (found);
+		}
+
+		[Test]
+		public void TestRegisterChannelWithBooleanImpersonateAndEnsureSecurity ()
+		{
+			string channelName = Guid.NewGuid ().ToString ("N");
+			string portName = "ipc" + Guid.NewGuid ().ToString ("N");
+
+			Hashtable props = new Hashtable ();
+			props ["name"] = channelName;
+			props ["portName"] = portName;
+			props ["impersonate"] = true;
+
+			IpcChannel chan = new IpcChannel (props, null, null);
+			ChannelServices.RegisterChannel (chan, true);
+			try {
+				Assert.IsTrue (((ISecurableChannel) chan).IsSecured);
+			} finally {
+				ChannelServices.UnregisterChannel (chan);
+			}
+		}
 	}
 }
-
