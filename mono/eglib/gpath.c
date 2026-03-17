@@ -112,7 +112,8 @@ g_path_get_dirname (const gchar *filename)
 {
 	char *p, *r;
 	size_t count;
-	g_return_val_if_fail (filename != NULL, NULL);
+	if (filename == NULL)
+		return g_strdup (".");
 
 	p = strrchr_seperator (filename);
 	if (p == NULL)
