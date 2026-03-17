@@ -325,9 +325,14 @@ namespace System.Reflection {
 				assembly = AppDomain.CurrentDomain.LoadSatellite (an, false, ref stackMark);
 				if (assembly != null)
 					return (RuntimeAssembly)assembly;
-			} catch (FileNotFoundException) {
+			} catch (Exception) {
 				assembly = null;
-				// ignore
+				// On Windows CLR, satellite assembly probing does not trigger
+				// AssemblyResolve, so buggy handlers never run. In mono,
+				// LoadAssembly may fire AssemblyResolve, and a handler that
+				// doesn't null-check GetManifestResourceStream can throw
+				// NullReferenceException. Catch all exceptions to match
+				// Windows behavior where satellite resolution never crashes.
 			}
 
 			if (String.IsNullOrEmpty (Location))
