@@ -4393,8 +4393,18 @@ do_switch (VerifyContext *ctx, int count, const unsigned char *data)
 
 	value = stack_pop (ctx);
 
-	if (stack_slot_get_type (value) != TYPE_I4 && stack_slot_get_type (value) != TYPE_NATIVE_INT)
+	switch (stack_slot_get_type (value)) {
+	case TYPE_I4:
+	case TYPE_NATIVE_INT:
+		break;
+	case TYPE_I8:
+		/* Mixed-mode C++/CLI can widen switch selectors to int64. */
+		CODE_NOT_VERIFIABLE (ctx, g_strdup_printf ("Int64 argument to switch at 0x%04x", ctx->ip_offset));
+		break;
+	default:
 		CODE_NOT_VERIFIABLE (ctx, g_strdup_printf ("Invalid argument to switch at 0x%04x", ctx->ip_offset));
+		break;
+	}
 
 	for (i = 0; i < count; ++i) {
 		int target = base + read32 (data + i * 4);

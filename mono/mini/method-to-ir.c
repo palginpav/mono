@@ -8417,8 +8417,20 @@ calli_end:
 			n = read32 (ip + 1);
 			--sp;
 			src1 = sp [0];
-			if ((src1->type != STACK_I4) && (src1->type != STACK_PTR)) 
-				UNVERIFIED;
+			if ((src1->type != STACK_I4) && (src1->type != STACK_PTR)) {
+				if (src1->type == STACK_I8) {
+					/* Mixed-mode C++/CLI can widen switch selectors to int64.
+					 * Narrow to int32 — the upper bits are not meaningful. */
+					int narrow_reg = alloc_ireg (cfg);
+					MONO_EMIT_NEW_UNALU (cfg, OP_LCONV_TO_I4, narrow_reg, src1->dreg);
+					src1->dreg = narrow_reg;
+					src1->type = STACK_I4;
+					*sp = mono_decompose_opcode (cfg, src1);
+					src1 = *sp;
+				} else {
+					UNVERIFIED;
+				}
+			}
 
 			ip += 5;
 

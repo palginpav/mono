@@ -4644,6 +4644,16 @@ generate_code (TransformData *td, MonoMethod *method, MonoMethodHeader *header, 
 			td->ip += 4;
 			next_ip = td->ip + n * 4;
 			--td->sp;
+			if (td->sp [0].type == STACK_TYPE_I8) {
+				/* Mixed-mode C++/CLI can produce int64 switch selectors.
+				 * Narrow to int32 via conv.i4. */
+				interp_add_ins (td, MINT_CONV_I4_I8);
+				interp_ins_set_sreg (td->last_ins, td->sp [0].local);
+				td->sp [0].type = STACK_TYPE_I4;
+				push_simple_type (td, STACK_TYPE_I4);
+				--td->sp;
+				interp_ins_set_dreg (td->last_ins, td->sp [0].local);
+			}
 			interp_ins_set_sreg (td->last_ins, td->sp [0].local);
 			InterpBasicBlock **target_bb_table = (InterpBasicBlock**)mono_mempool_alloc0 (td->mempool, sizeof (InterpBasicBlock*) * n);
 			for (i = 0; i < n; i++) {
