@@ -2134,9 +2134,17 @@ static gboolean
 process_get_complete_path (const gunichar2 *appname, gchar **completed)
 {
 	char *found = NULL;
+	char *portable = NULL;
 	gboolean result = FALSE;
 
 	char *utf8app = g_utf16_to_utf8 (appname, -1, NULL, NULL, NULL);
+
+	portable = mono_portability_find_file (utf8app, TRUE);
+	if (portable != NULL) {
+		*completed = g_shell_quote (portable);
+		result = TRUE;
+		goto exit;
+	}
 
 	if (g_path_is_absolute (utf8app)) {
 		*completed = g_shell_quote (utf8app);
@@ -2160,6 +2168,7 @@ process_get_complete_path (const gunichar2 *appname, gchar **completed)
 	*completed = g_shell_quote (found);
 	result = TRUE;
 exit:
+	g_free (portable);
 	g_free (found);
 	g_free (utf8app);
 	return result;

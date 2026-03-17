@@ -4,6 +4,7 @@
 
 #include "config.h"
 
+#include <stdlib.h>
 #include <string.h>
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
@@ -20,15 +21,42 @@
 int mono_io_portability_helpers = PORTABILITY_UNKNOWN;
 
 static gchar *mono_portability_find_file_internal (const gchar *pathname, gboolean last_exists);
+static gchar *mono_portability_find_wine_file (const gchar *pathname, gboolean last_exists);
+
+static gboolean
+mono_portability_is_wine_runtime (void)
+{
+	const gchar *wineprefix = g_getenv ("WINEPREFIX");
+	const gchar *wineloader = g_getenv ("WINELOADER");
+
+	return (wineprefix && *wineprefix) || (wineloader && *wineloader);
+}
+
+static gchar *
+mono_portability_get_wine_prefix (void)
+{
+	const gchar *wineprefix = g_getenv ("WINEPREFIX");
+
+	if (wineprefix && *wineprefix)
+		return g_strdup (wineprefix);
+
+	if (g_getenv ("WINELOADER"))
+		return g_build_filename (g_get_home_dir (), ".wine", NULL);
+
+	return NULL;
+}
 
 void mono_portability_helpers_init (void)
 {
-        gchar *env;
+        const gchar *env;
 
 	if (mono_io_portability_helpers != PORTABILITY_UNKNOWN)
 		return;
 	
         mono_io_portability_helpers = PORTABILITY_NONE;
+
+	if (mono_portability_is_wine_runtime ())
+		mono_io_portability_helpers |= PORTABILITY_DRIVE;
 	
         env = g_getenv ("MONO_IOMAP");
         if (env != NULL) {
@@ -56,7 +84,6 @@ void mono_portability_helpers_init (void)
                                 mono_io_portability_helpers |= (PORTABILITY_DRIVE | PORTABILITY_CASE);
 			}
                 }
-		g_free (env);
 	}
 }
 
@@ -108,6 +135,69 @@ gchar *mono_portability_find_file (const gchar *pathname, gboolean last_exists)
 	return ret;
 }
 
+static gchar *
+mono_portability_find_wine_file (const gchar *pathname, gboolean last_exists)
+{
+	gchar *wineprefix = NULL, *drive_link = NULL, *link_target = NULL;
+	gchar *dosdevices_dir = NULL, *drive_root = NULL, *suffix = NULL, *mapped = NULL;
+	gchar drive_spec[3];
+	const gchar *path_suffix;
+	char link_buf[4096];
+	char resolved_buf[4096];
+	ssize_t link_len;
+
+	if (!pathname || !pathname[0] || !g_ascii_isalpha (pathname[0]) || pathname[1] != ':')
+		return NULL;
+
+	if (!mono_portability_is_wine_runtime ())
+		return NULL;
+
+	wineprefix = mono_portability_get_wine_prefix ();
+	if (!wineprefix)
+		return NULL;
+
+	drive_spec[0] = g_ascii_tolower (pathname[0]);
+	drive_spec[1] = ':';
+	drive_spec[2] = '\0';
+
+	drive_link = g_build_filename (wineprefix, "dosdevices", drive_spec, NULL);
+	link_len = readlink (drive_link, link_buf, sizeof (link_buf) - 1);
+	if (link_len < 0)
+		goto done;
+	link_buf[link_len] = '\0';
+	link_target = g_strdup (link_buf);
+
+	dosdevices_dir = g_path_get_dirname (drive_link);
+	if (realpath (drive_link, resolved_buf) != NULL)
+		drive_root = g_strdup (resolved_buf);
+	else
+		drive_root = g_path_is_absolute (link_target) ? g_strdup (link_target) : g_build_filename (dosdevices_dir, link_target, NULL);
+	if (!drive_root)
+		goto done;
+
+	path_suffix = pathname + 2;
+	while (*path_suffix == '\\' || *path_suffix == '/')
+		path_suffix++;
+
+	suffix = g_strdup (path_suffix);
+	g_strdelimit (suffix, '\\', '/');
+
+	mapped = suffix[0] ? g_build_filename (drive_root, suffix, NULL) : g_strdup (drive_root);
+	if (last_exists && access (mapped, F_OK) != 0) {
+		g_free (mapped);
+		mapped = NULL;
+	}
+
+done:
+	g_free (suffix);
+	g_free (drive_root);
+	g_free (dosdevices_dir);
+	g_free (link_target);
+	g_free (drive_link);
+	g_free (wineprefix);
+	return mapped;
+}
+
 /* Returns newly-allocated string or NULL on failure */
 static gchar *mono_portability_find_file_internal (const gchar *pathname, gboolean last_exists)
 {
@@ -115,6 +205,10 @@ static gchar *mono_portability_find_file_internal (const gchar *pathname, gboole
 	int num_components = 0, component = 0;
 	DIR *scanning = NULL;
 	size_t len;
+
+	gchar *wine_path = mono_portability_find_wine_file (pathname, last_exists);
+	if (wine_path != NULL)
+		return wine_path;
 
 	if (IS_PORTABILITY_NONE) {
 		return(NULL);
