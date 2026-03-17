@@ -532,7 +532,8 @@ namespace System.Runtime.InteropServices
 
 		public static int GetExceptionCode ()
 		{
-			throw new PlatformNotSupportedException ();
+			// Windows returns 0 when no SEH exception is active.
+			return 0;
 		}
 
 		public static int GetHRForException (Exception e)
