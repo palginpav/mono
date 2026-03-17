@@ -213,6 +213,11 @@ namespace System
 			}
 		}
 
+		internal object GetTransparentProxyObject ()
+		{
+			return proxy != null ? proxy.GetTransparentProxy () : this;
+		}
+
 		internal IntPtr IDispatch
 		{
 			get

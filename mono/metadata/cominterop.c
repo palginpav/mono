@@ -517,6 +517,64 @@ cominterop_get_method_interface (MonoMethod* method)
 	return ic;
 }
 
+static MonoClass *
+mono_class_get_com_event_interface_attribute_class (void)
+{
+	MONO_STATIC_POINTER_INIT (MonoClass, attr)
+
+		attr = mono_class_load_from_name (mono_defaults.corlib, "System.Runtime.InteropServices", "ComEventInterfaceAttribute");
+
+	MONO_STATIC_POINTER_INIT_END (MonoClass, attr)
+
+	return attr;
+}
+
+static gboolean
+mono_cominterop_class_has_attribute (MonoClass *klass, MonoClass *attribute_klass)
+{
+	MonoCustomAttrInfo *cinfo;
+	gboolean has_attr = FALSE;
+	ERROR_DECL (error);
+
+	if (!klass || !attribute_klass)
+		return FALSE;
+
+	cinfo = mono_custom_attrs_from_class_checked (klass, error);
+	mono_error_assert_ok (error);
+	if (!cinfo)
+		return FALSE;
+
+	has_attr = mono_custom_attrs_has_attr (cinfo, attribute_klass);
+
+	if (!cinfo->cached)
+		mono_custom_attrs_free (cinfo);
+
+	return has_attr;
+}
+
+static MonoClass *
+mono_cominterop_get_event_accessor_interface (MonoMethod *method)
+{
+	MonoClass *iface;
+	MonoClass *attr_klass;
+
+	if (!method || (!g_str_has_prefix (method->name, "add_") && !g_str_has_prefix (method->name, "remove_")))
+		return NULL;
+
+	attr_klass = mono_class_get_com_event_interface_attribute_class ();
+	if (!attr_klass)
+		return NULL;
+
+	iface = cominterop_get_method_interface (method);
+	if (mono_cominterop_class_has_attribute (iface, attr_klass))
+		return iface;
+
+	if (iface != method->klass && mono_cominterop_class_has_attribute (method->klass, attr_klass))
+		return method->klass;
+
+	return NULL;
+}
+
 static void
 mono_cominterop_get_interface_missing_error (MonoError* error, MonoMethod* method)
 {
@@ -1176,6 +1234,33 @@ mono_cominterop_get_native_wrapper (MonoMethod *method)
 	mb = mono_mb_new (method->klass, method->name, MONO_WRAPPER_COMINTEROP);
 
 #ifndef DISABLE_JIT
+	{
+		MonoClass *event_iface = mono_cominterop_get_event_accessor_interface (method);
+
+		if (event_iface) {
+			MONO_STATIC_POINTER_INIT (MonoMethod, invoke_com_event_method)
+
+				MonoClass *helper_class;
+				ERROR_DECL (error);
+
+				helper_class = mono_class_load_from_name (mono_defaults.corlib, "System.Runtime.InteropServices", "ComEventsHelper");
+				invoke_com_event_method = mono_class_get_method_from_name_checked (helper_class, "InvokeComEventMethod", 4, 0, error);
+				mono_error_assert_ok (error);
+
+			MONO_STATIC_POINTER_INIT_END (MonoMethod, invoke_com_event_method)
+
+			mono_mb_emit_ldarg (mb, 0);
+			mono_mb_emit_ptr (mb, m_class_get_byval_arg (event_iface));
+			mono_mb_emit_icall (mb, cominterop_type_from_handle);
+			mono_mb_emit_ldstr (mb, g_strdup (method->name));
+			mono_mb_emit_ldarg (mb, 1);
+			mono_mb_emit_managed_call (mb, invoke_com_event_method, NULL);
+			mono_mb_emit_byte (mb, CEE_RET);
+
+			goto done;
+		}
+	}
+
 	/* if method klass is import, that means method
 	 * is really a com call. let interop system emit it.
 	*/
@@ -1271,6 +1356,7 @@ mono_cominterop_get_native_wrapper (MonoMethod *method)
 	}
 #endif /* DISABLE_JIT */
 
+done:
 	csig = mono_metadata_signature_dup_full (m_class_get_image (method->klass), sig);
 	csig->pinvoke = 0;
 	res = mono_mb_create_and_cache (cache, method,
