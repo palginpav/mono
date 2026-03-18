@@ -6592,9 +6592,19 @@ emit_managed_wrapper_ilgen (MonoMethodBuilder *mb, MonoMethodSignature *invoke_s
 				mono_emit_marshal (m, i, invoke_sig->params [i], mspecs [i + 1], tmp_locals [i], NULL, MARSHAL_ACTION_MANAGED_CONV_OUT);
 				break;
 			case MONO_TYPE_I:
+			case MONO_TYPE_U4:
+			case MONO_TYPE_I4:
+			case MONO_TYPE_BOOLEAN:
+			case MONO_TYPE_R4:
+			case MONO_TYPE_R8:
+			case MONO_TYPE_I8:
+			case MONO_TYPE_U8:
+			case MONO_TYPE_STRING:
+			case MONO_TYPE_OBJECT:
 				break;
 			default:
-				g_assert_not_reached ();
+				g_warning ("marshal-ilgen: unhandled [Out] param type 0x%02x for param %d", t->type, i);
+				break;
 			}
 		}
 	}
