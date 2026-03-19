@@ -423,8 +423,76 @@ namespace System.Security.Cryptography.X509Certificates {
 				subset.AddRange (CertificateCollection.Find (X509FindType.FindBySubjectKeyIdentifier, aki, false));
 			}
 			X509Certificate2 parent = SelectBestFromCollection (certificate, subset);
+			// if not found locally, try fetching via Authority Information Access (AIA)
+			if (parent == null || certificate.Equals (parent)) {
+				parent = FetchParentViaAIA (certificate);
+				if (parent != null) {
+					// cache in CertificateAuthorities for future lookups
+					collection.Add (parent);
+				}
+			}
 			// if parent==certificate we're looping but it's not (probably) a bug and not a true cyclic (over n certs)
 			return certificate.Equals (parent) ? null : parent;
+		}
+
+		private X509Certificate2 FetchParentViaAIA (X509Certificate2 certificate)
+		{
+			// Look for Authority Information Access extension (OID 1.3.6.1.5.5.7.1.1)
+			foreach (var ext in certificate.Extensions) {
+				if (ext.Oid.Value != "1.3.6.1.5.5.7.1.1")
+					continue;
+				// Parse AIA extension to find caIssuers URLs
+				// AIA is a SEQUENCE of AccessDescription: OID + GeneralName
+				// caIssuers OID = 1.3.6.1.5.5.7.48.2
+				try {
+					string url = ParseAIACaIssuersUrl (ext.RawData);
+					if (url != null) {
+						byte[] data = DownloadCertificate (url);
+						if (data != null && data.Length > 0) {
+							return new X509Certificate2 (data);
+						}
+					}
+				} catch {
+					// ignore AIA fetch failures
+				}
+			}
+			return null;
+		}
+
+		private string ParseAIACaIssuersUrl (byte[] rawData)
+		{
+			// ASN.1: SEQUENCE { AccessDescription... }
+			// AccessDescription: SEQUENCE { OID, [6] URI }
+			// caIssuers OID = 1.3.6.1.5.5.7.48.2
+			try {
+				var asn = new Mono.Security.ASN1 (rawData);
+				for (int i = 0; i < asn.Count; i++) {
+					var desc = asn [i];
+					if (desc.Count < 2) continue;
+					var oid = new System.Security.Cryptography.Oid (
+						Mono.Security.ASN1Convert.ToOid (desc [0]));
+					if (oid.Value == "1.3.6.1.5.5.7.48.2") {
+						// GeneralName [6] = uniformResourceIdentifier (IA5String)
+						var name = desc [1];
+						if (name.Tag == 0x86) {
+							return System.Text.Encoding.ASCII.GetString (name.Value);
+						}
+					}
+				}
+			} catch {
+			}
+			return null;
+		}
+
+		private byte[] DownloadCertificate (string url)
+		{
+			try {
+				using (var wc = new System.Net.WebClient ()) {
+					return wc.DownloadData (url);
+				}
+			} catch {
+				return null;
+			}
 		}
 
 		private bool IsChainComplete (X509Certificate2 certificate)
