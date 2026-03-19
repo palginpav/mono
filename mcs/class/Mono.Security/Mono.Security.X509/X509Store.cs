@@ -82,9 +82,13 @@ namespace Mono.Security.X509 {
 					_crls = new ArrayList ();
 				}
 				if (_crls == null) {
-					_crls = BuildCrlsCollection (_storePath);
+					try {
+						_crls = BuildCrlsCollection (_storePath);
+					} catch {
+						_crls = new ArrayList ();
+					}
 				}
-				return _crls; 
+				return _crls;
 			}
 		}
 
