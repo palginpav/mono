@@ -145,7 +145,75 @@ namespace Mono.Btls
 
 		public override bool Build (X509Certificate2 certificate)
 		{
-			return false;
+			if (certificate == null)
+				throw new ArgumentException ("certificate");
+
+			Reset ();
+
+			try {
+				using (var store = new MonoBtlsX509Store ())
+				using (var nativeCert = MonoBtlsX509.LoadFromData (certificate.RawData, MonoBtlsX509Format.DER)) {
+					// Add system root certificates
+					store.LoadLocations (null, null);
+					store.AddTrustedRoots ();
+
+					// Build the chain to verify
+					var verifyChain = new MonoBtlsX509Chain ();
+					verifyChain.AddCertificate (nativeCert);
+
+					// Add extra store certs
+					if (ChainPolicy != null && ChainPolicy.ExtraStore != null) {
+						foreach (var extra in ChainPolicy.ExtraStore) {
+							using (var extraNative = MonoBtlsX509.LoadFromData (extra.RawData, MonoBtlsX509Format.DER))
+								verifyChain.AddCertificate (extraNative);
+						}
+					}
+
+					using (var ctx = new MonoBtlsX509StoreCtx ()) {
+						ctx.Initialize (store, verifyChain);
+
+						int result = ctx.Verify ();
+						chain = ctx.GetChain ();
+
+						if (result != 1) {
+							int error = ctx.VerifyResult;
+							AddStatus ((X509ChainStatusFlags)MapVerifyError (error));
+
+							// Check if VerificationFlags allow this error
+							if (ChainPolicy != null && ChainPolicy.VerificationFlags == X509VerificationFlags.AllFlags)
+								return true;
+							if (ChainPolicy != null && (ChainPolicy.VerificationFlags & X509VerificationFlags.AllowUnknownCertificateAuthority) != 0)
+								return true;
+							return false;
+						}
+
+						return true;
+					}
+				}
+			} catch {
+				AddStatus (X509ChainStatusFlags.RevocationStatusUnknown);
+				if (ChainPolicy != null && ChainPolicy.VerificationFlags == X509VerificationFlags.AllFlags)
+					return true;
+				return false;
+			}
+		}
+
+		static int MapVerifyError (int error)
+		{
+			// Map BoringSSL X509_V_ERR_* to X509ChainStatusFlags
+			switch (error) {
+			case 2:  // X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT
+			case 20: // X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY
+				return (int)X509ChainStatusFlags.PartialChain;
+			case 10: // X509_V_ERR_CERT_HAS_EXPIRED
+			case 9:  // X509_V_ERR_CERT_NOT_YET_VALID
+				return (int)X509ChainStatusFlags.NotTimeValid;
+			case 19: // X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN
+			case 18: // X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT
+				return (int)X509ChainStatusFlags.UntrustedRoot;
+			default:
+				return (int)X509ChainStatusFlags.RevocationStatusUnknown;
+			}
 		}
 
 		public override void Reset ()
