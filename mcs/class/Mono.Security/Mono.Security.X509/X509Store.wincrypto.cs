@@ -139,7 +139,7 @@ namespace Mono.Security.X509 {
 
 		public ArrayList Crls {
 			get {
-				throw new NotImplementedException ("Mono.Security.X509.X509Store.get_Crls");
+				return new ArrayList ();
 			}
 		}
 
