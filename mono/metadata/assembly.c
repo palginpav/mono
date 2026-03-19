@@ -895,7 +895,36 @@ mono_assembly_getrootdir (void)
 gchar *
 mono_native_getrootdir (void)
 {
-	gchar* fullpath = g_build_path (G_DIR_SEPARATOR_S, mono_assembly_getrootdir (), mono_config_get_reloc_lib_dir(), (const char*)NULL);
+	const char *reloc = mono_config_get_reloc_lib_dir ();
+	const char *root = mono_assembly_getrootdir ();
+
+	/* When running under Wine, mono_set_dirs() sets root to the
+	 * correct runtime lib path (e.g. "Z:\...\lib").  Appending
+	 * reloc_lib_dir ("../lib") would create a broken path like
+	 * "lib/../lib".  Skip reloc when root was set at runtime. */
+	if (reloc == NULL || root == NULL)
+		return g_strdup (root);
+
+	/* Check if root already ends with the reloc suffix — skip if so
+	 * to avoid duplication like "lib/../lib" */
+	gsize root_len = strlen (root);
+	const char *reloc_base = reloc;
+	/* Skip leading "../" components in reloc */
+	while (reloc_base[0] == '.' && reloc_base[1] == '.' &&
+	       (reloc_base[2] == '/' || reloc_base[2] == '\\'))
+		reloc_base += 3;
+	if (reloc_base[0] != '\0') {
+		gsize base_len = strlen (reloc_base);
+		/* If root already ends with "/lib" or "\lib" and reloc_base is "lib", skip */
+		if (root_len >= base_len + 1) {
+			const char *root_tail = root + root_len - base_len;
+			if ((root_tail[-1] == '/' || root_tail[-1] == '\\') &&
+			    g_ascii_strncasecmp (root_tail, reloc_base, base_len) == 0)
+				return g_strdup (root);
+		}
+	}
+
+	gchar* fullpath = g_build_path (G_DIR_SEPARATOR_S, root, reloc, (const char*)NULL);
 	return fullpath;
 }
 
