@@ -41,6 +41,7 @@
 #include <direct.h>
 #endif
 #ifdef G_OS_WIN32
+#include <io.h>
 int mkstemp (char *tmp_template);
 #endif
 
@@ -66,7 +67,15 @@ g_file_get_contents (const gchar *filename, gchar **contents, gsize *length, GEr
 	if (length)
 		*length = 0;
 
+#ifdef G_OS_WIN32
+	{
+		gunichar2 *utf16_filename = u8to16 (filename);
+		fd = _wopen (utf16_filename, OPEN_FLAGS | _O_BINARY);
+		g_free (utf16_filename);
+	}
+#else
 	fd = open (filename, OPEN_FLAGS);
+#endif
 	if (fd == -1) {
 		if (gerror != NULL) {
 			int err = errno;
