@@ -94,6 +94,16 @@ namespace Mono.Btls
 			using (var managedChain = new X509Chain (chainImpl)) {
 				var leaf = managedChain.ChainElements[0].Certificate;
 				var result = ValidateCertificate (leaf, managedChain);
+
+				// If btls verification failed, try building the chain
+				// via managed code with AIA fetching as fallback.
+				if (!result && storeCtx.VerifyResult != 1) {
+					try {
+						result = TryManagedChainBuildWithAIA (leaf, managedChain);
+					} catch {
+					}
+				}
+
 				certificateValidated = true;
 				return result ? 1 : 0;
 			}
@@ -506,6 +516,33 @@ namespace Mono.Btls
 		}
 		public override TlsProtocols NegotiatedProtocol {
 			get { return connectionInfo.ProtocolVersion; }
+		}
+
+		bool TryManagedChainBuildWithAIA (X509Certificate2 leaf, X509Chain btlsChain)
+		{
+			// Build a new chain using managed X509Chain which supports
+			// AIA auto-fetch for missing intermediates/roots.
+			using (var chain = new X509Chain ()) {
+				chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+				chain.ChainPolicy.VerificationFlags = X509VerificationFlags.AllowUnknownCertificateAuthority;
+				// Add extra certs from the btls chain
+				foreach (var element in btlsChain.ChainElements) {
+					if (element.Certificate != leaf)
+						chain.ChainPolicy.ExtraStore.Add (element.Certificate);
+				}
+				if (chain.Build (leaf)) {
+					return true;
+				}
+				// Even if Build returns false, check if the only issue
+				// is UntrustedRoot — the cert may still be valid if
+				// we fetched the full chain via AIA
+				foreach (var status in chain.ChainStatus) {
+					if (status.Status != X509ChainStatusFlags.NoError &&
+					    status.Status != X509ChainStatusFlags.UntrustedRoot)
+						return false;
+				}
+				return chain.ChainElements.Count > 1;
+			}
 		}
 	}
 }

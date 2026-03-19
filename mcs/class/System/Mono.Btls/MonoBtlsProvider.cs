@@ -152,6 +152,13 @@ namespace Mono.Btls
 			if (chain != null) {
 				var chainImpl = (X509ChainImplBtls)chain.Impl;
 				var success = chainImpl.StoreCtx.VerifyResult == 1;
+				if (!success) {
+					// Try AIA fetch for the pre-built chain case too
+					success = TryAIAAndRebuildChain (ref chain, validator, targetHost, serverMode, certificates);
+				}
+				if (!success) {
+					chainImpl = (X509ChainImplBtls)chain.Impl;
+				}
 				CheckValidationResult (
 					validator, targetHost, serverMode, certificates,
 					wantsChain, chain, chainImpl.StoreCtx,
@@ -170,6 +177,12 @@ namespace Mono.Btls
 				storeCtx.SetVerifyParam (param);
 
 				var ret = storeCtx.Verify ();
+
+				// If verification failed, try fetching missing
+				// intermediate/root certs via AIA and retry.
+				if (ret != 1) {
+					ret = TryAIAFetchAndRetry (store, nativeChain, storeCtx, param, certificates);
+				}
 
 				var success = ret == 1;
 
@@ -204,6 +217,80 @@ namespace Mono.Btls
 				var ret = storeCtx.Verify ();
 
 				return ret == 1;
+			}
+		}
+
+		static bool TryAIAAndRebuildChain (
+			ref X509Chain chain,
+			MNS.ChainValidationHelper validator, string targetHost, bool serverMode,
+			X509CertificateCollection certificates)
+		{
+			try {
+				using (var store = new MonoBtlsX509Store ())
+				using (var nativeChain = GetNativeChain (certificates))
+				using (var param = GetVerifyParam (validator.Settings, targetHost, serverMode))
+				using (var storeCtx = new MonoBtlsX509StoreCtx ()) {
+					SetupCertificateStore (store, validator.Settings, serverMode);
+					storeCtx.Initialize (store, nativeChain);
+					storeCtx.SetVerifyParam (param);
+
+					var ret = TryAIAFetchAndRetry (store, nativeChain, storeCtx, param, certificates);
+					if (ret == 1) {
+						chain = GetManagedChain (nativeChain);
+						return true;
+					}
+				}
+			} catch {
+			}
+			return false;
+		}
+
+		static int TryAIAFetchAndRetry (
+			MonoBtlsX509Store store, MonoBtlsX509Chain nativeChain,
+			MonoBtlsX509StoreCtx storeCtx, MonoBtlsX509VerifyParam param,
+			X509CertificateCollection certificates)
+		{
+			// Walk the certificate chain and try to fetch missing issuers via AIA.
+			// This handles cases where intermediate or root CAs are not in the
+			// local store but the certificate provides an AIA URL.
+			bool added = false;
+			var visited = new System.Collections.Generic.HashSet<string> ();
+
+			for (int i = 0; i < certificates.Count; i++) {
+				var cert = new X509Certificate2 (certificates [i]);
+				// Walk up the chain fetching issuers
+				for (int depth = 0; depth < 5; depth++) {
+					if (cert.Subject == cert.Issuer)
+						break; // self-signed root
+					string issuerDN = cert.Issuer;
+					if (visited.Contains (issuerDN))
+						break;
+					visited.Add (issuerDN);
+
+					var parent = X509ChainImplMono.FetchIssuerViaAIA (cert);
+					if (parent == null)
+						break;
+
+					try {
+						using (var native = MonoBtlsX509.LoadFromData (parent.RawData, MonoBtlsX509Format.DER)) {
+							store.AddCertificate (native);
+							added = true;
+						}
+					} catch {
+						break;
+					}
+					cert = parent;
+				}
+			}
+
+			if (!added)
+				return 0; // nothing fetched, keep original failure
+
+			// Retry verification with the new certs in the store
+			using (var retryCtx = new MonoBtlsX509StoreCtx ()) {
+				retryCtx.Initialize (store, nativeChain);
+				retryCtx.SetVerifyParam (param);
+				return retryCtx.Verify ();
 			}
 		}
 

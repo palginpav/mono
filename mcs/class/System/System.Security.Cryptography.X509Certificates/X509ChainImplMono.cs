@@ -437,13 +437,19 @@ namespace System.Security.Cryptography.X509Certificates {
 
 		private X509Certificate2 FetchParentViaAIA (X509Certificate2 certificate)
 		{
+			return FetchIssuerViaAIA (certificate);
+		}
+
+		/// <summary>
+		/// Fetch the issuer certificate via Authority Information Access (AIA)
+		/// extension. Used by both X509ChainImplMono and MonoBtlsProvider.
+		/// </summary>
+		internal static X509Certificate2 FetchIssuerViaAIA (X509Certificate2 certificate)
+		{
 			// Look for Authority Information Access extension (OID 1.3.6.1.5.5.7.1.1)
 			foreach (var ext in certificate.Extensions) {
 				if (ext.Oid.Value != "1.3.6.1.5.5.7.1.1")
 					continue;
-				// Parse AIA extension to find caIssuers URLs
-				// AIA is a SEQUENCE of AccessDescription: OID + GeneralName
-				// caIssuers OID = 1.3.6.1.5.5.7.48.2
 				try {
 					string url = ParseAIACaIssuersUrl (ext.RawData);
 					if (url != null) {
@@ -459,7 +465,7 @@ namespace System.Security.Cryptography.X509Certificates {
 			return null;
 		}
 
-		private string ParseAIACaIssuersUrl (byte[] rawData)
+		internal static string ParseAIACaIssuersUrl (byte[] rawData)
 		{
 			// ASN.1: SEQUENCE { AccessDescription... }
 			// AccessDescription: SEQUENCE { OID, [6] URI }
@@ -484,7 +490,7 @@ namespace System.Security.Cryptography.X509Certificates {
 			return null;
 		}
 
-		private byte[] DownloadCertificate (string url)
+		internal static byte[] DownloadCertificate (string url)
 		{
 			try {
 				using (var wc = new System.Net.WebClient ()) {
