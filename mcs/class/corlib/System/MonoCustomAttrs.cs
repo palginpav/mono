@@ -255,9 +255,8 @@ namespace System
 					// or
 					// - the attribute is on same inheritance level than the first 
 					//   attribute that was discovered for this attribute type ))
-					if ((inheritanceLevel == 0 || usage.Inherited) && (usage.AllowMultiple || 
-						(firstAttribute == null || (firstAttribute != null 
-							&& firstAttribute.InheritanceLevel == inheritanceLevel))))
+					if ((inheritanceLevel == 0 || usage.Inherited) && (usage.AllowMultiple ||
+						firstAttribute == null))
 						a.Add (attr);
 
 					if (firstAttribute == null)
