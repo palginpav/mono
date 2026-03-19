@@ -33,12 +33,16 @@ namespace System {
 #if MONO
         static Attribute[] InternalGetCustomAttributes (PropertyInfo element, Type type, bool inherit)
         {
-            return (Attribute []) MonoCustomAttrs.GetCustomAttributes (element, type, inherit);
+            // MonoCustomAttrs.GetCustomAttributes uses the runtime icall which
+            // may include attributes from interface properties, causing
+            // AmbiguousMatchException.  Use the direct MemberInfo path which
+            // only returns attributes declared on the concrete property.
+            return element.GetCustomAttributes (type, inherit) as Attribute[];
         }
 
         static Attribute[] InternalGetCustomAttributes (EventInfo element, Type type, bool inherit)
         {
-            return (Attribute []) MonoCustomAttrs.GetCustomAttributes (element, type, inherit);
+            return element.GetCustomAttributes (type, inherit) as Attribute[];
         }
 
         static Attribute[] InternalParamGetCustomAttributes (ParameterInfo parameter, Type attributeType, bool inherit)
