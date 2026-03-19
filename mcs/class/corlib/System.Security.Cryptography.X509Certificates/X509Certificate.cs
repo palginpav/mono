@@ -543,35 +543,49 @@ namespace System.Security.Cryptography.X509Certificates
 		[ComVisible (false)]
 		public virtual void Import (byte[] rawData)
 		{
-			throw new PlatformNotSupportedException (SR.NotSupported_ImmutableX509Certificate);
+			Reset ();
+			if (rawData != null && rawData.Length != 0)
+				impl = X509Helper.Import (rawData);
 		}
 
 		[ComVisible (false)]
 		public virtual void Import (byte[] rawData, string password, X509KeyStorageFlags keyStorageFlags)
 		{
-			throw new PlatformNotSupportedException (SR.NotSupported_ImmutableX509Certificate);
+			Reset ();
+			if (rawData != null && rawData.Length != 0) {
+				ValidateKeyStorageFlags (keyStorageFlags);
+				using (var safePasswordHandle = new SafePasswordHandle (password))
+					impl = X509Helper.Import (rawData, safePasswordHandle, keyStorageFlags);
+			}
 		}
 
 		public virtual void Import (byte[] rawData, SecureString password, X509KeyStorageFlags keyStorageFlags)
 		{
-			throw new PlatformNotSupportedException (SR.NotSupported_ImmutableX509Certificate);
+			Reset ();
+			if (rawData != null && rawData.Length != 0) {
+				ValidateKeyStorageFlags (keyStorageFlags);
+				using (var safePasswordHandle = new SafePasswordHandle (password))
+					impl = X509Helper.Import (rawData, safePasswordHandle, keyStorageFlags);
+			}
 		}
 
 		[ComVisible (false)]
 		public virtual void Import (string fileName)
 		{
-			throw new PlatformNotSupportedException (SR.NotSupported_ImmutableX509Certificate);
+			Import (fileName, (string)null, X509KeyStorageFlags.DefaultKeySet);
 		}
 
 		[ComVisible (false)]
 		public virtual void Import (string fileName, string password, X509KeyStorageFlags keyStorageFlags)
 		{
-			throw new PlatformNotSupportedException (SR.NotSupported_ImmutableX509Certificate);
+			byte[] rawData = System.IO.File.ReadAllBytes (fileName);
+			Import (rawData, password, keyStorageFlags);
 		}
 
 		public virtual void Import (string fileName, SecureString password, X509KeyStorageFlags keyStorageFlags)
 		{
-			throw new PlatformNotSupportedException (SR.NotSupported_ImmutableX509Certificate);
+			byte[] rawData = System.IO.File.ReadAllBytes (fileName);
+			Import (rawData, password, keyStorageFlags);
 		}
 
 		internal DateTime GetNotAfter ()
