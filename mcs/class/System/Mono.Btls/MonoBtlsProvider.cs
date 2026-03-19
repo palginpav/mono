@@ -387,6 +387,13 @@ namespace Mono.Btls
 #else
 			AddUserStore (store);
 			AddMachineStore (store);
+#if MX_WINCRYPTO
+			// Wine's crypt32 cert store may not contain all root CAs
+			// available on the Linux host (e.g. newer Microsoft TLS
+			// roots).  Load the host's CA bundle via Z:-drive as
+			// fallback so TLS works even when Wine's store is incomplete.
+			AddHostCertBundle (store);
+#endif
 #endif
 		}
 
@@ -399,6 +406,44 @@ namespace Mono.Btls
 		static void AddMachineStore (MonoBtlsX509Store store)
 		{
 			store.AddWinCryptoLookup (StoreLocation.LocalMachine);
+		}
+
+		static readonly string[] HostCaBundlePaths = new[] {
+			@"Z:\etc\pki\tls\certs\ca-bundle.crt",         // RHEL/Fedora/ALT
+			@"Z:\etc\ssl\certs\ca-certificates.crt",        // Debian/Ubuntu
+			@"Z:\etc\ssl\cert.pem",                          // Alpine/macOS
+			@"Z:\etc\ssl\ca-bundle.pem",                     // openSUSE
+			@"Z:\var\lib\ssl\cert.pem",                      // some distros (via OpenSSL)
+		};
+
+		static void AddHostCertBundle (MonoBtlsX509Store store)
+		{
+			// Prefer SSL_CERT_FILE env var (standard OpenSSL/BoringSSL
+			// mechanism) — convert Unix path to Wine Z:-drive path.
+			string envFile = Environment.GetEnvironmentVariable ("SSL_CERT_FILE");
+			if (!string.IsNullOrEmpty (envFile)) {
+				string winPath = envFile;
+				if (envFile.Length > 0 && envFile [0] == '/')
+					winPath = "Z:" + envFile.Replace ('/', '\\');
+				try {
+					if (File.Exists (winPath)) {
+						store.AddFileLookup (winPath, MonoBtlsX509FileType.PEM);
+						return;
+					}
+				} catch {}
+			}
+
+			// Try well-known Linux CA bundle locations via Z:-drive
+			foreach (var path in HostCaBundlePaths) {
+				try {
+					if (File.Exists (path)) {
+						store.AddFileLookup (path, MonoBtlsX509FileType.PEM);
+						return;
+					}
+				} catch {
+					// host path may not be accessible
+				}
+			}
 		}
 #elif !MONODROID
 		static void AddUserStore (MonoBtlsX509Store store)
