@@ -198,6 +198,12 @@ namespace System.Security.Cryptography.X509Certificates {
 					// FIXME - does IgnoreWrongUsage apply to CTL (it doesn't have Ctl in it's name like the others)
 					result &= ((ChainPolicy.VerificationFlags & X509VerificationFlags.IgnoreWrongUsage) != 0);
 					break;
+				case X509ChainStatusFlags.RevocationStatusUnknown:
+				case X509ChainStatusFlags.OfflineRevocation:
+					// .NET Framework Build() returns true when revocation
+					// status is unknown — the flags are reported in
+					// ChainStatus but don't cause Build to fail.
+					break;
 				default:
 					result = false;
 					break;
