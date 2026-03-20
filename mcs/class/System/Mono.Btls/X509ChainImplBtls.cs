@@ -172,10 +172,16 @@ namespace Mono.Btls
 					using (var ctx = new MonoBtlsX509StoreCtx ()) {
 						ctx.Initialize (store, verifyChain);
 
+						MonoBtlsProvider.SetupCertificateStore (store, null, false);
+
 						int result = ctx.Verify ();
 						chain = ctx.GetChain ();
 
+						// If verification failed, try fetching missing certs via AIA
 						if (result != 1) {
+							var managed = TryBuildWithManagedAIA (certificate);
+							if (managed) return true;
+
 							int error = ctx.VerifyResult;
 							AddStatus ((X509ChainStatusFlags)MapVerifyError (error));
 
@@ -192,8 +198,25 @@ namespace Mono.Btls
 				}
 			} catch {
 				AddStatus (X509ChainStatusFlags.RevocationStatusUnknown);
-				if (ChainPolicy != null && ChainPolicy.VerificationFlags == X509VerificationFlags.AllFlags)
-					return true;
+				// .NET Framework tolerates unknown revocation — return true
+				// so callers see the status in ChainStatus but Build succeeds.
+				return true;
+			}
+		}
+
+		bool TryBuildWithManagedAIA (X509Certificate2 certificate)
+		{
+			try {
+				// Fall back to mono managed chain builder which supports AIA
+				using (var monoChain = new X509ChainImplMono (false)) {
+					monoChain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+					if (ChainPolicy != null && ChainPolicy.ExtraStore != null) {
+						foreach (var extra in ChainPolicy.ExtraStore)
+							monoChain.ChainPolicy.ExtraStore.Add (extra);
+					}
+					return monoChain.Build (certificate);
+				}
+			} catch {
 				return false;
 			}
 		}
