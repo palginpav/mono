@@ -181,8 +181,8 @@ namespace System.Security.Cryptography.X509Certificates {
 					result &= ((ChainPolicy.VerificationFlags & X509VerificationFlags.IgnoreInvalidName) != 0);
 					break;
 				case X509ChainStatusFlags.InvalidExtension:
-					// not sure ?!?
-					result &= ((ChainPolicy.VerificationFlags & X509VerificationFlags.IgnoreWrongUsage) != 0);
+					// .NET Framework tolerates unknown/unsupported extensions
+					// in certificates (e.g. Microsoft Time-Stamp certs).
 					break;
 				//
 				//	((ChainPolicy.VerificationFlags & X509VerificationFlags.IgnoreRootRevocationUnknown) != 0)
