@@ -3475,7 +3475,10 @@ cominterop_ccw_release_impl (MonoCCWInterface* ccwe)
 	MONO_REQ_GC_UNSAFE_MODE;
 	MonoCCW* ccw = ccwe->ccw;
 	g_assert (ccw);
-	g_assert (ccw->ref_count > 0);
+	if (ccw->ref_count <= 0) {
+		g_warning ("cominterop_ccw_release: ref_count already %d, ignoring extra Release", ccw->ref_count);
+		return 0;
+	}
 	gint32 const ref_count = mono_atomic_dec_i32 ((gint32*)&ccw->ref_count);
 	if (ref_count == 0) {
 		/* allow gc of object */
