@@ -250,7 +250,7 @@ static const AssemblyVersionMap framework_assemblies [] = {
 	FACADE_ASSEMBLY ("System.Resources.ReaderWriter"),
 	FACADE_ASSEMBLY ("System.Resources.ResourceManager"),
 	FACADE_ASSEMBLY ("System.Resources.Writer"),
-	FACADE_ASSEMBLY ("System.Runtime"),
+	{"System.Runtime", 0},
 	{"System.Runtime.Caching", 0},
 	FACADE_ASSEMBLY ("System.Runtime.CompilerServices.VisualC"),
 	{"System.Runtime.DurableInstancing", 0},
