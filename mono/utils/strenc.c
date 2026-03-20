@@ -188,10 +188,19 @@ gchar *mono_unicode_to_external_checked (const gunichar2 *uni, MonoError *err)
 	/* Turn the unicode into utf8 to start with, because its
 	 * easier to work with gchar * than gunichar2 *
 	 */
+	if (!uni)
+		return NULL;
 	utf8=g_utf16_to_utf8 (uni, -1, NULL, NULL, &gerr);
 	if (utf8 == NULL) {
-		mono_error_set_argument (err, "uni", gerr->message);
-		g_error_free (gerr);
+		if (err) {
+			if (gerr) {
+				mono_error_set_argument (err, "uni", gerr->message);
+			} else {
+				mono_error_set_argument (err, "uni", "Failed to convert UTF-16 string");
+			}
+		}
+		if (gerr)
+			g_error_free (gerr);
 		return utf8;
 	}
 	

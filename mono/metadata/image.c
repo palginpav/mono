@@ -3427,6 +3427,8 @@ mono_image_property_lookup (MonoImage *image, gpointer subject, guint32 property
 	gpointer res;
 
 	mono_image_lock (image);
+	if (!image->property_hash)
+		image->property_hash = mono_property_hash_new ();
 	res = mono_property_hash_lookup (image->property_hash, subject, property);
  	mono_image_unlock (image);
 

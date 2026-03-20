@@ -332,11 +332,13 @@ g_hash_table_lookup_extended (GHashTable *hash, gconstpointer key, gpointer *ori
 	guint hashcode;
 	
 	g_return_val_if_fail (hash != NULL, FALSE);
+	if (!hash->table || !hash->table_size || !hash->hash_func)
+		return FALSE;
 	sanity_check (hash);
 	equal = hash->key_equal_func;
 
 	hashcode = ((*hash->hash_func) (key)) % hash->table_size;
-	
+
 	for (s = hash->table [hashcode]; s != NULL; s = s->next){
 		if ((*equal)(s->key, key)){
 			if (orig_key)
