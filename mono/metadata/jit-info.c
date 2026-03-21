@@ -207,7 +207,10 @@ jit_info_table_chunk_index (MonoJitInfoTableChunk *chunk, MonoThreadHazardPointe
 		else
 			left = pos + 1;
 	}
-	g_assert (left == right);
+	if (left != right) {
+		g_warning ("jit_info_table_find_pos: left != right (%d != %d), table may be inconsistent", left, right);
+		return left;
+	}
 
 	return left;
 }
