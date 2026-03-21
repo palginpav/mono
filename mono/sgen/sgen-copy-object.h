@@ -74,7 +74,7 @@ copy_object_no_checks (GCObject *obj, SgenGrayQueue *queue)
 	{
 		size_t vt_addr = (size_t)(void*)vt;
 		if (G_UNLIKELY (vt_addr < 0x10000 || (sizeof(void*) == 8 && vt_addr > 0x00007FFFFFFFFFFFULL))) {
-			collector_pin_object (obj, queue);
+			/* Corrupted vtable — can't determine size, just skip this object */
 			return obj;
 		}
 	}
@@ -118,7 +118,6 @@ copy_object_no_checks_par (GCObject *obj, SgenGrayQueue *queue)
 		{
 			size_t vt_addr = (size_t)(void*)vt;
 			if (G_UNLIKELY (vt_addr < 0x10000 || (sizeof(void*) == 8 && vt_addr > 0x00007FFFFFFFFFFFULL))) {
-				collector_pin_object (obj, queue);
 				return obj;
 			}
 		}
