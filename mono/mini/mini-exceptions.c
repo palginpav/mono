@@ -2314,8 +2314,9 @@ mono_handle_exception_internal (MonoContext *ctx, MonoObject *obj, gboolean resu
 			if (mono_ex && mono_trace_eval_exception (mono_object_class (mono_ex)))
 				mono_print_thread_dump_from_ctx (ctx);
 		}
-		/* Always log TypeInitializationException with inner exception */
-		if (mono_ex && !strcmp (m_class_get_name (mono_object_class (obj)), "TypeInitializationException")) {
+		/* Always log TypeInitializationException and SynchronizationLockException */
+		if (mono_ex && (!strcmp (m_class_get_name (mono_object_class (obj)), "TypeInitializationException") ||
+		                !strcmp (m_class_get_name (mono_object_class (obj)), "SynchronizationLockException"))) {
 			MonoObject *inner = mono_ex->inner_ex;
 			if (inner) {
 				char *inner_msg = NULL;
@@ -2331,13 +2332,33 @@ mono_handle_exception_internal (MonoContext *ctx, MonoObject *obj, gboolean resu
 					if (!is_ok (inner_error)) inner_msg = NULL;
 				}
 				mono_error_cleanup (inner_error);
-				g_printerr ("[TypeInitEx] %s.%s inner: %s.%s: %s\n",
+				g_printerr ("[ExcTrace] %s.%s inner: %s.%s: %s\n",
 					m_class_get_name_space (mono_object_class (obj)),
 					m_class_get_name (mono_object_class (obj)),
 					m_class_get_name_space (mono_object_class (inner)),
 					m_class_get_name (mono_object_class (inner)),
 					inner_msg ? inner_msg : "(no message)");
 				g_free (inner_msg);
+			} else {
+				/* No inner — log the exception message itself */
+				char *exc_msg = NULL;
+				ERROR_DECL (exc_error);
+				MonoMethod *get_msg2 = mono_class_get_method_from_name_checked (
+					mono_defaults.exception_class, "get_Message", 0, 0, exc_error);
+				if (is_ok (exc_error) && get_msg2) {
+					MonoMethod *vm2 = mono_object_get_virtual_method_internal (obj, get_msg2);
+					MonoObject *exc2 = NULL;
+					MonoObject *result2 = mono_runtime_try_invoke (vm2, obj, NULL, &exc2, exc_error);
+					if (result2 && is_ok (exc_error))
+						exc_msg = mono_string_to_utf8_checked_internal ((MonoString*)result2, exc_error);
+					if (!is_ok (exc_error)) exc_msg = NULL;
+				}
+				mono_error_cleanup (exc_error);
+				g_printerr ("[ExcTrace] %s.%s: %s\n",
+					m_class_get_name_space (mono_object_class (obj)),
+					m_class_get_name (mono_object_class (obj)),
+					exc_msg ? exc_msg : "(no message)");
+				g_free (exc_msg);
 			}
 		}
 		jit_tls->orig_ex_ctx_set = TRUE;

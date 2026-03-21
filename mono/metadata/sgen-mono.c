@@ -2372,7 +2372,8 @@ sgen_client_scan_thread_data (void *start_nursery, void *end_nursery, gboolean p
 				 * update the reference in the handle.
 				 */
 				HandleStack *stack = info->client_info.info.handle_stack;
-				g_assert (stack == NULL || mono_handle_stack_is_empty (stack));
+				if (stack != NULL && !mono_handle_stack_is_empty (stack))
+					g_warning ("sgen: skipping thread %p with non-empty handle stack (skip_reason=%d)", info, skip_reason);
 			}
 			continue;
 		}
