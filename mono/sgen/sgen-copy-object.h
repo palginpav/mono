@@ -66,6 +66,18 @@ static MONO_NEVER_INLINE GCObject *
 copy_object_no_checks (GCObject *obj, SgenGrayQueue *queue)
 {
 	GCVTable vt = SGEN_LOAD_VTABLE_UNCHECKED (obj);
+	/*
+	 * Validate vtable pointer before dereferencing. On Wine with WPF,
+	 * native code (wpfgfx) can corrupt managed heap objects, leaving
+	 * garbage vtable pointers. Skip corrupted objects instead of crashing.
+	 */
+	{
+		size_t vt_addr = (size_t)(void*)vt;
+		if (G_UNLIKELY (vt_addr < 0x10000 || (sizeof(void*) == 8 && vt_addr > 0x00007FFFFFFFFFFFULL))) {
+			collector_pin_object (obj, queue);
+			return obj;
+		}
+	}
 	gboolean has_references = SGEN_VTABLE_HAS_REFERENCES (vt);
 	mword objsize = SGEN_ALIGN_UP (sgen_client_par_object_get_size (vt, obj));
 	void *destination = COLLECTOR_SERIAL_ALLOC_FOR_PROMOTION (vt, obj, objsize, has_references);
@@ -102,6 +114,14 @@ copy_object_no_checks_par (GCObject *obj, SgenGrayQueue *queue)
 	if (!destination) {
 		GCVTable vt = (GCVTable) vtable_word;
 		GCObject *final_destination;
+		/* Validate vtable pointer */
+		{
+			size_t vt_addr = (size_t)(void*)vt;
+			if (G_UNLIKELY (vt_addr < 0x10000 || (sizeof(void*) == 8 && vt_addr > 0x00007FFFFFFFFFFFULL))) {
+				collector_pin_object (obj, queue);
+				return obj;
+			}
+		}
 		/*
 		 * At this point we know vt is not tagged and we shouldn't access the vtable through obj
 		 * since it could get copied at any time by another thread.
