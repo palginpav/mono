@@ -21,6 +21,12 @@
 #include "utils/mono-time.h"
 #include "utils/mono-error-internals.h"
 
+#ifdef HOST_WIN32
+#include <windows.h>
+#include <objbase.h>
+#include "utils/mono-os-wait.h"
+#endif
+
 #undef DEBUG_REFS
 
 #define HANDLES_PER_SLOT 240
@@ -843,9 +849,112 @@ mono_w32handle_handle_is_owned (gpointer handle)
 }
 
 #ifdef HOST_WIN32
+
+/*
+ * Check if the current thread is in a COM STA apartment.
+ * On STA threads, blocking waits must pump Win32 messages so that
+ * COM cross-apartment calls (which are delivered as window messages)
+ * can be dispatched. Without this, any background thread trying to
+ * call a COM STA object will deadlock.
+ */
+static gboolean
+mono_w32handle_is_sta_thread (void)
+{
+	APTTYPE apttype;
+	APTTYPEQUALIFIER qualifier;
+	HRESULT hr = CoGetApartmentType (&apttype, &qualifier);
+	return SUCCEEDED (hr) && (apttype == APTTYPE_STA || apttype == APTTYPE_MAINSTA);
+}
+
+/*
+ * Thread-local re-entrancy guard for STA message pumping.
+ */
+static __thread gboolean sta_pump_active = FALSE;
+
+/*
+ * Message-pumping wait for STA threads.
+ *
+ * Uses MsgWaitForMultipleObjectsEx with QS_ALLINPUT to pump all
+ * messages including COM STA calls and application messages.
+ * A thread-local guard prevents recursive pumping — re-entrant
+ * waits fall back to plain WaitForSingleObjectEx.
+ * Single message per iteration to limit stack depth from dispatch.
+ */
+static DWORD
+mono_w32handle_sta_pump_wait (gpointer *handles, gsize nhandles, gboolean waitall, guint32 timeout, gboolean alertable)
+{
+	DWORD flags = (alertable ? MWMO_ALERTABLE : 0);
+	if (waitall)
+		flags |= MWMO_WAITALL;
+	DWORD wait_timeout = timeout;
+	gint64 start = 0;
+	MSG msg;
+
+	/* Re-entrancy guard: if already pumping, fall back to plain wait */
+	if (sta_pump_active) {
+		if (nhandles == 1)
+			return WaitForSingleObjectEx (handles[0], timeout, alertable);
+		else
+			return WaitForMultipleObjectsEx ((DWORD)nhandles, handles, waitall, timeout, alertable);
+	}
+
+	sta_pump_active = TRUE;
+
+	if (timeout != MONO_INFINITE_WAIT)
+		start = mono_msec_ticks ();
+
+	for (;;) {
+		DWORD ret;
+
+		MONO_ENTER_GC_SAFE;
+		ret = MsgWaitForMultipleObjectsEx (
+			(DWORD)nhandles, handles, wait_timeout,
+			QS_ALLINPUT, flags);
+		MONO_EXIT_GC_SAFE;
+
+		if (ret >= WAIT_OBJECT_0 && ret < WAIT_OBJECT_0 + nhandles) {
+			sta_pump_active = FALSE;
+			return ret;
+		} else if (ret == WAIT_OBJECT_0 + nhandles) {
+			/* Dispatch one message per iteration to limit stack depth */
+			if (PeekMessageW (&msg, NULL, 0, 0, PM_REMOVE | PM_NOYIELD)) {
+				if (msg.message == WM_QUIT) {
+					PostQuitMessage ((int)msg.wParam);
+					sta_pump_active = FALSE;
+					return WAIT_TIMEOUT;
+				}
+				TranslateMessage (&msg);
+				DispatchMessageW (&msg);
+			}
+			/* Recalculate remaining timeout */
+			if (timeout != MONO_INFINITE_WAIT) {
+				gint64 elapsed = mono_msec_ticks () - start;
+				if (elapsed >= (gint64)timeout) {
+					sta_pump_active = FALSE;
+					return WAIT_TIMEOUT;
+				}
+				wait_timeout = (DWORD)(timeout - elapsed);
+			}
+		} else if (ret == WAIT_IO_COMPLETION) {
+			sta_pump_active = FALSE;
+			return WAIT_IO_COMPLETION;
+		} else if (ret == WAIT_TIMEOUT) {
+			sta_pump_active = FALSE;
+			return WAIT_TIMEOUT;
+		} else {
+			sta_pump_active = FALSE;
+			return ret;
+		}
+	}
+}
+
 MonoW32HandleWaitRet
 mono_w32handle_wait_one (gpointer handle, guint32 timeout, gboolean alertable)
 {
+	if (mono_w32handle_is_sta_thread ()) {
+		return mono_w32handle_convert_wait_ret (
+			mono_w32handle_sta_pump_wait (&handle, 1, FALSE, timeout, alertable), 1);
+	}
 	return mono_w32handle_convert_wait_ret (mono_coop_win32_wait_for_single_object_ex (handle, timeout, alertable), 1);
 }
 #else
@@ -1003,12 +1112,18 @@ mono_w32handle_check_duplicates (MonoW32Handle *handles [ ], gsize nhandles, gbo
 }
 
 #ifdef HOST_WIN32
+
 MonoW32HandleWaitRet
 mono_w32handle_wait_multiple (gpointer *handles, gsize nhandles, gboolean waitall, guint32 timeout, gboolean alertable, MonoError *error)
 {
-	DWORD const wait_result = (nhandles != 1)
-		? mono_coop_win32_wait_for_multiple_objects_ex (nhandles, handles, waitall, timeout, alertable, error)
-		: mono_coop_win32_wait_for_single_object_ex (handles [0], timeout, alertable);
+	DWORD wait_result;
+	if (mono_w32handle_is_sta_thread ()) {
+		wait_result = mono_w32handle_sta_pump_wait (handles, nhandles, waitall, timeout, alertable);
+	} else {
+		wait_result = (nhandles != 1)
+			? mono_coop_win32_wait_for_multiple_objects_ex (nhandles, handles, waitall, timeout, alertable, error)
+			: mono_coop_win32_wait_for_single_object_ex (handles [0], timeout, alertable);
+	}
 	return mono_w32handle_convert_wait_ret (wait_result, nhandles);
 }
 #else
