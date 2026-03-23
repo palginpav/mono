@@ -1940,6 +1940,215 @@ typedef struct _MonoIRecordInfoVTable
 	int (STDCALL *RecordDestroy)(MonoIRecordInfo* pRecInfo, gpointer rec);
 } MonoIRecordInfoVTable;
 
+#ifdef HOST_WIN32
+/* IRecordInfo implementation for managed value types (structs).
+ * Required by SafeArrayCreateEx(VT_RECORD) to know element size and layout. */
+typedef struct {
+	MonoIRecordInfoVTable *vtable;
+	gint32 ref_count;
+	MonoClass *klass;
+	guint32 native_size;
+} MonoRecordInfoImpl;
+
+static const GUID IID_IRecordInfo_mono = { 0x0000002f, 0x0000, 0x0000, { 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46 } };
+
+static int STDCALL
+mono_record_info_QueryInterface (MonoIRecordInfo *iface, gconstpointer riid, gpointer *ppv)
+{
+	if (!ppv)
+		return MONO_E_INVALIDARG;
+	static const GUID IID_IUnknown_local = { 0x00000000, 0x0000, 0x0000, { 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46 } };
+	if (memcmp (riid, &IID_IUnknown_local, sizeof (GUID)) == 0 ||
+	    memcmp (riid, &IID_IRecordInfo_mono, sizeof (GUID)) == 0) {
+		*ppv = iface;
+		iface->vtable->AddRef (iface);
+		return MONO_S_OK;
+	}
+	*ppv = NULL;
+	return MONO_E_NOINTERFACE;
+}
+
+static int STDCALL
+mono_record_info_AddRef (MonoIRecordInfo *iface)
+{
+	MonoRecordInfoImpl *impl = (MonoRecordInfoImpl *)iface;
+	return mono_atomic_inc_i32 (&impl->ref_count);
+}
+
+static int STDCALL
+mono_record_info_Release (MonoIRecordInfo *iface)
+{
+	MonoRecordInfoImpl *impl = (MonoRecordInfoImpl *)iface;
+	gint32 ref = mono_atomic_dec_i32 (&impl->ref_count);
+	if (ref == 0)
+		g_free (impl);
+	return ref;
+}
+
+static int STDCALL
+mono_record_info_RecordInit (MonoIRecordInfo *iface, gpointer rec)
+{
+	MonoRecordInfoImpl *impl = (MonoRecordInfoImpl *)iface;
+	if (rec)
+		memset (rec, 0, impl->native_size);
+	return MONO_S_OK;
+}
+
+static int STDCALL
+mono_record_info_RecordClear (MonoIRecordInfo *iface, gpointer rec)
+{
+	MonoRecordInfoImpl *impl = (MonoRecordInfoImpl *)iface;
+	if (rec)
+		memset (rec, 0, impl->native_size);
+	return MONO_S_OK;
+}
+
+static int STDCALL
+mono_record_info_RecordCopy (MonoIRecordInfo *iface, gpointer src, gpointer dest)
+{
+	MonoRecordInfoImpl *impl = (MonoRecordInfoImpl *)iface;
+	if (src && dest)
+		memcpy (dest, src, impl->native_size);
+	return MONO_S_OK;
+}
+
+static int STDCALL
+mono_record_info_GetGuid (MonoIRecordInfo *iface, guint8 *guid)
+{
+	if (guid)
+		memset (guid, 0, 16);
+	return MONO_S_OK;
+}
+
+static int STDCALL
+mono_record_info_GetName (MonoIRecordInfo *iface, gunichar2 **name)
+{
+	MonoRecordInfoImpl *impl = (MonoRecordInfoImpl *)iface;
+	if (!name)
+		return MONO_E_INVALIDARG;
+	const char *cname = m_class_get_name (impl->klass);
+	*name = g_utf8_to_utf16 (cname, -1, NULL, NULL, NULL);
+	return MONO_S_OK;
+}
+
+static int STDCALL
+mono_record_info_GetSize (MonoIRecordInfo *iface, guint32 *size)
+{
+	MonoRecordInfoImpl *impl = (MonoRecordInfoImpl *)iface;
+	if (!size)
+		return MONO_E_INVALIDARG;
+	*size = impl->native_size;
+	return MONO_S_OK;
+}
+
+static int STDCALL
+mono_record_info_GetTypeInfo (MonoIRecordInfo *iface, gpointer ppTypeInfo)
+{
+	return MONO_E_NOTIMPL;
+}
+
+static int STDCALL
+mono_record_info_GetField (MonoIRecordInfo *iface, gpointer data, gunichar2 *name, VARIANT *var)
+{
+	return MONO_E_NOTIMPL;
+}
+
+static int STDCALL
+mono_record_info_GetFieldNoCopy (MonoIRecordInfo *iface, gpointer data, gunichar2 *name, VARIANT *var, gpointer *ppvDataCArray)
+{
+	return MONO_E_NOTIMPL;
+}
+
+static int STDCALL
+mono_record_info_PutField (MonoIRecordInfo *iface, guint32 flags, gpointer data, gunichar2 *name, VARIANT *var)
+{
+	return MONO_E_NOTIMPL;
+}
+
+static int STDCALL
+mono_record_info_PutFieldNoCopy (MonoIRecordInfo *iface, guint32 flags, gpointer data, gunichar2 *name, VARIANT *var)
+{
+	return MONO_E_NOTIMPL;
+}
+
+static int STDCALL
+mono_record_info_GetFieldNames (MonoIRecordInfo *iface, guint32 *num_names, gunichar2 **names)
+{
+	if (num_names)
+		*num_names = 0;
+	return MONO_S_OK;
+}
+
+static int STDCALL
+mono_record_info_IsMatchingType (MonoIRecordInfo *iface, MonoIRecordInfo *other)
+{
+	MonoRecordInfoImpl *a = (MonoRecordInfoImpl *)iface;
+	MonoRecordInfoImpl *b = (MonoRecordInfoImpl *)other;
+	return a->klass == b->klass;
+}
+
+static gpointer STDCALL
+mono_record_info_RecordCreate (MonoIRecordInfo *iface)
+{
+	MonoRecordInfoImpl *impl = (MonoRecordInfoImpl *)iface;
+	return g_malloc0 (impl->native_size);
+}
+
+static int STDCALL
+mono_record_info_RecordCreateCopy (MonoIRecordInfo *iface, gpointer source, gpointer *dest)
+{
+	MonoRecordInfoImpl *impl = (MonoRecordInfoImpl *)iface;
+	if (!dest)
+		return MONO_E_INVALIDARG;
+	*dest = g_malloc (impl->native_size);
+	if (source)
+		memcpy (*dest, source, impl->native_size);
+	else
+		memset (*dest, 0, impl->native_size);
+	return MONO_S_OK;
+}
+
+static int STDCALL
+mono_record_info_RecordDestroy (MonoIRecordInfo *iface, gpointer rec)
+{
+	g_free (rec);
+	return MONO_S_OK;
+}
+
+static MonoIRecordInfoVTable mono_record_info_vtable = {
+	mono_record_info_QueryInterface,
+	mono_record_info_AddRef,
+	mono_record_info_Release,
+	mono_record_info_RecordInit,
+	mono_record_info_RecordClear,
+	mono_record_info_RecordCopy,
+	mono_record_info_GetGuid,
+	mono_record_info_GetName,
+	mono_record_info_GetSize,
+	mono_record_info_GetTypeInfo,
+	mono_record_info_GetField,
+	mono_record_info_GetFieldNoCopy,
+	mono_record_info_PutField,
+	mono_record_info_PutFieldNoCopy,
+	mono_record_info_GetFieldNames,
+	mono_record_info_IsMatchingType,
+	mono_record_info_RecordCreate,
+	mono_record_info_RecordCreateCopy,
+	mono_record_info_RecordDestroy,
+};
+
+static MonoIRecordInfo*
+mono_record_info_create (MonoClass *klass)
+{
+	MonoRecordInfoImpl *impl = g_new0 (MonoRecordInfoImpl, 1);
+	impl->vtable = &mono_record_info_vtable;
+	impl->ref_count = 1;
+	impl->klass = klass;
+	impl->native_size = mono_class_native_size (klass, NULL);
+	return (MonoIRecordInfo *)impl;
+}
+#endif /* HOST_WIN32 */
+
 int
 ves_icall_System_Runtime_InteropServices_Marshal_AddRefInternal (MonoIUnknown *pUnk)
 {
@@ -4755,6 +4964,14 @@ mono_marshal_win_safearray_create_internal (guint32 vt, UINT cDims, SAFEARRAYBOU
 }
 #endif /* HAVE_API_SUPPORT_WIN32_SAFE_ARRAY */
 
+#if HAVE_API_SUPPORT_WIN32_SAFE_ARRAY
+static gpointer
+mono_marshal_win_safearray_create_ex (guint32 vt, UINT cDims, SAFEARRAYBOUND *rgsabound, gpointer pvExtra)
+{
+	return SafeArrayCreateEx (vt, cDims, rgsabound, pvExtra);
+}
+#endif
+
 static gboolean
 mono_marshal_safearray_create_internal_impl (UINT cDims, SAFEARRAYBOUND *rgsabound, gpointer *newsafearray)
 {
@@ -4905,12 +5122,16 @@ mono_marshal_safearray_from_array_impl (MonoArrayHandle rarray, guint32 vt, Mono
 	}
 
 	gpointer safearray = mono_marshal_safearray_create_internal (vt, dim, bnd);
+#ifdef HOST_WIN32
 	if (!safearray && vt == VT_RECORD) {
-		/* VT_RECORD requires SafeArrayCreateEx with IRecordInfo which mono doesn't
-		 * provide. Fall back to VT_VARIANT which can hold any value type. */
-		vt = VT_VARIANT;
-		safearray = mono_marshal_safearray_create_internal (vt, dim, bnd);
+		/* VT_RECORD requires SafeArrayCreateEx with IRecordInfo.
+		 * Create an IRecordInfo for the managed struct element type. */
+		MonoClass *eclass = m_class_get_element_class (mono_object_class (array));
+		MonoIRecordInfo *rec_info = mono_record_info_create (eclass);
+		safearray = mono_marshal_win_safearray_create_ex (vt, dim, bnd, rec_info);
+		rec_info->vtable->Release (rec_info); /* SafeArrayCreateEx AddRefs internally */
 	}
+#endif
 	if (!safearray) {
 		mono_error_set_execution_engine (error, "Failed to create SafeArray");
 		goto leave;
@@ -4918,48 +5139,73 @@ mono_marshal_safearray_from_array_impl (MonoArrayHandle rarray, guint32 vt, Mono
 	if (!bnd [0].cElements)
 		goto leave;
 
-	MONO_STATIC_POINTER_INIT (MonoMethod, get_value)
+	if (vt == VT_RECORD) {
+		/* VT_RECORD: elements are contiguous raw struct bytes in the SafeArray.
+		 * Copy directly from managed array elements to SafeArray data area,
+		 * bypassing the Variant.SetValueAt path which doesn't handle VT_RECORD. */
+		MonoClass *eclass = m_class_get_element_class (mono_object_class (array));
+		guint32 esize = mono_class_value_size (eclass, NULL);
+		guint32 native_size = mono_class_native_size (eclass, NULL);
 
-		ERROR_DECL (error);
-		get_value = mono_class_get_method_from_name_checked (mono_defaults.array_class, "GetValueImpl", 1, 0, error);
-		mono_error_assert_ok (error);
-
-	MONO_STATIC_POINTER_INIT_END (MonoMethod, get_value)
-
-	MONO_STATIC_POINTER_INIT (MonoMethod, set_value_at)
-
-		ERROR_DECL (error);
-		set_value_at = mono_class_get_method_from_name_checked (mono_class_get_variant_class (), "SetValueAt", 3, METHOD_ATTRIBUTE_STATIC, error);
-		mono_error_assert_ok (error);
-
-	MONO_STATIC_POINTER_INIT_END (MonoMethod, set_value_at)
-
-	for (i = 0, d = 0; d < dim; i++) {
-		if (mono_marshal_safearray_get_value_internal (safearray, idx, &val) >= 0) {
-			gpointer arg [1] = { &i };
-			MonoObject* obj = mono_runtime_invoke_checked (get_value, (MonoObject*)array, arg, error);
-			if (mono_error_set_pending_exception (error)) {
-				ves_icall_System_Variant_SafeArrayDestroyInternal (safearray, error);
-				safearray = NULL;
-				goto leave;
+		for (i = 0, d = 0; d < dim; i++) {
+			if (mono_marshal_safearray_get_value_internal (safearray, idx, &val) >= 0) {
+				gchar *ea = mono_array_addr_with_size_internal (array, esize, i);
+				memcpy (val, ea, native_size);
 			}
 
-			gpointer args [3] = { obj, &vt, &val };
-			mono_runtime_invoke_checked (set_value_at, NULL, args, error);
-			if (mono_error_set_pending_exception (error)) {
-				ves_icall_System_Variant_SafeArrayDestroyInternal (safearray, error);
-				safearray = NULL;
-				goto leave;
+			/* advance to next element */
+			for (d = dim; d--;) {
+				if (idx [d] < bnd [d].lLbound + bnd [d].cElements - 1) {
+					idx [d]++;
+					break;
+				}
+				idx [d] = bnd [d].lLbound;
 			}
 		}
+	} else {
+		MONO_STATIC_POINTER_INIT (MonoMethod, get_value)
 
-		/* advance to next element */
-		for (d = dim; d--;) {
-			if (idx [d] < bnd [d].lLbound + bnd [d].cElements - 1) {
-				idx [d]++;
-				break;
+			ERROR_DECL (error);
+			get_value = mono_class_get_method_from_name_checked (mono_defaults.array_class, "GetValueImpl", 1, 0, error);
+			mono_error_assert_ok (error);
+
+		MONO_STATIC_POINTER_INIT_END (MonoMethod, get_value)
+
+		MONO_STATIC_POINTER_INIT (MonoMethod, set_value_at)
+
+			ERROR_DECL (error);
+			set_value_at = mono_class_get_method_from_name_checked (mono_class_get_variant_class (), "SetValueAt", 3, METHOD_ATTRIBUTE_STATIC, error);
+			mono_error_assert_ok (error);
+
+		MONO_STATIC_POINTER_INIT_END (MonoMethod, set_value_at)
+
+		for (i = 0, d = 0; d < dim; i++) {
+			if (mono_marshal_safearray_get_value_internal (safearray, idx, &val) >= 0) {
+				gpointer arg [1] = { &i };
+				MonoObject* obj = mono_runtime_invoke_checked (get_value, (MonoObject*)array, arg, error);
+				if (mono_error_set_pending_exception (error)) {
+					ves_icall_System_Variant_SafeArrayDestroyInternal (safearray, error);
+					safearray = NULL;
+					goto leave;
+				}
+
+				gpointer args [3] = { obj, &vt, &val };
+				mono_runtime_invoke_checked (set_value_at, NULL, args, error);
+				if (mono_error_set_pending_exception (error)) {
+					ves_icall_System_Variant_SafeArrayDestroyInternal (safearray, error);
+					safearray = NULL;
+					goto leave;
+				}
 			}
-			idx [d] = bnd [d].lLbound;
+
+			/* advance to next element */
+			for (d = dim; d--;) {
+				if (idx [d] < bnd [d].lLbound + bnd [d].cElements - 1) {
+					idx [d]++;
+					break;
+				}
+				idx [d] = bnd [d].lLbound;
+			}
 		}
 	}
 leave:
@@ -5028,6 +5274,7 @@ mono_marshal_safearray_to_array_impl (gpointer safearray, MonoClass *aclass, gin
 		case VT_DISPATCH:
 		case VT_UNKNOWN:
 		case VT_VARIANT: klass = mono_defaults.object_class; break;
+		case VT_RECORD: klass = mono_defaults.object_class; break; /* typed path preferred */
 		default:
 			mono_error_set_argument (error, "vt", "Unsupported SafeArray element type");
 			return NULL_HANDLE_ARRAY;
@@ -5057,10 +5304,13 @@ mono_marshal_safearray_to_array_impl (gpointer safearray, MonoClass *aclass, gin
 
 #ifdef HOST_WIN32
 	VARTYPE actual_vt;
-	if (FAILED( SafeArrayGetVartype (safearray, &actual_vt)) || vt != actual_vt)
-	{
-		mono_error_set_generic_error (error, "System.Runtime.InteropServices", "SafeArrayTypeMismatchException", "Specified array was not of the expected type.");
-		return NULL_HANDLE_ARRAY;
+	if (!FAILED (SafeArrayGetVartype (safearray, &actual_vt))) {
+		if (actual_vt == VT_RECORD)
+			vt = VT_RECORD; /* use VT_RECORD path regardless of expected vt */
+		else if (vt != actual_vt) {
+			mono_error_set_generic_error (error, "System.Runtime.InteropServices", "SafeArrayTypeMismatchException", "Specified array was not of the expected type.");
+			return NULL_HANDLE_ARRAY;
+		}
 	}
 #endif
 
@@ -5122,6 +5372,32 @@ mono_marshal_safearray_to_array_impl (gpointer safearray, MonoClass *aclass, gin
 	if (!sizes [0])
 		goto leave;
 
+		vt, dim, (unsigned long)sizes[0], m_class_get_name (aclass));
+
+	if (vt == VT_RECORD) {
+		/* VT_RECORD: elements are contiguous raw struct bytes.
+		 * Copy directly from SafeArray data into managed array elements. */
+		MonoClass *eclass = m_class_get_element_class (aclass);
+		guint32 esize = mono_class_value_size (eclass, NULL);
+		guint32 native_size = mono_class_native_size (eclass, NULL);
+
+		for (i = 0, d = 0; d < dim; i++) {
+			if (mono_marshal_safearray_get_value_internal (safearray, idx, &val) >= 0) {
+				gchar *ea = mono_array_addr_with_size_internal (array, esize, i);
+				memcpy (ea, val, native_size);
+			}
+
+			/* advance to next element */
+			for (d = dim; d--;) {
+				if (idx [d] < bounds [d] + sizes [d] - 1) {
+					idx [d]++;
+					break;
+				}
+				idx [d] = bounds [d];
+			}
+		}
+	} else {
+
 	MonoMethod* set_value = mono_get_Array_SetValueImpl ();
 
 	MONO_STATIC_POINTER_INIT (MonoMethod, get_value_at)
@@ -5155,6 +5431,7 @@ mono_marshal_safearray_to_array_impl (gpointer safearray, MonoClass *aclass, gin
 			idx [d] = bounds [d];
 		}
 	}
+	} /* end else (non-VT_RECORD) */
 
 leave:
 	g_free (sizes);

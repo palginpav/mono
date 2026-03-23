@@ -3499,7 +3499,6 @@ ves_icall_InternalInvoke (MonoReflectionMethodHandle method_handle, MonoObjectHa
 	if (m && (m->flags & 0x1800) == 0x1800) { /* RTSpecialName + SpecialName = .ctor */
 		const char *klass_name = m->klass ? m_class_get_name (m->klass) : "?";
 		const char *klass_ns = m->klass ? m_class_get_name_space (m->klass) : "?";
-		FILE *f = fopen ("/tmp/mono_ctor.log", "a");
 		if (f) { fprintf (f, ".ctor %s.%s\n", klass_ns, klass_name); fclose (f); }
 	}
 	MonoMethodSignature* const sig = mono_method_signature_internal (m);

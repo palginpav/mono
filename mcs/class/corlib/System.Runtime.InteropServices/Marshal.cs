@@ -542,7 +542,6 @@ namespace System.Runtime.InteropServices
 
 			/* Log ALL non-trivial exceptions converted to HRESULT */
 			if (e._HResult < 0)
-				Console.Error.WriteLine ("[CCW_ExcToHR] hr=0x" + ((uint)e._HResult).ToString("X8") + " " + e.GetType ().FullName + ": " + e.Message);
 
 #if FEATURE_COMINTEROP
 			var errorInfo = new ManagedErrorInfo(e);
