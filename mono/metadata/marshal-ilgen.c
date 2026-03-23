@@ -6635,6 +6635,24 @@ emit_managed_wrapper_ilgen (MonoMethodBuilder *mb, MonoMethodSignature *invoke_s
 			mono_mb_emit_byte (mb, CEE_POP);
 		}
 
+		/* Zero all [out] byref parameters on exception, matching .NET Framework CCW behavior.
+		 * Without this, native callers may use uninitialized [out] pointers after a failed
+		 * COM call that returned an error HRESULT (e.g. QueryService returning E_NOINTERFACE). */
+		for (i = 0; i < sig->param_count; i++) {
+			if (sig->params [i]->byref) {
+				mono_mb_emit_ldarg (mb, i + (sig->hasthis ? 1 : 0));
+				if (sig->params [i]->type == MONO_TYPE_STRING ||
+				    sig->params [i]->type == MONO_TYPE_CLASS ||
+				    sig->params [i]->type == MONO_TYPE_OBJECT ||
+				    sig->params [i]->type == MONO_TYPE_SZARRAY ||
+				    sig->params [i]->type == MONO_TYPE_ARRAY) {
+					mono_mb_emit_byte (mb, CEE_LDC_I4_0);
+					mono_mb_emit_byte (mb, CEE_CONV_U);
+					mono_mb_emit_byte (mb, CEE_STIND_I);
+				}
+			}
+		}
+
 		mono_mb_emit_branch (mb, CEE_LEAVE);
 
 		clause->handler_len = mono_mb_get_pos (mb) - clause->handler_offset;
