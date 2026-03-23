@@ -2314,6 +2314,12 @@ mono_handle_exception_internal (MonoContext *ctx, MonoObject *obj, gboolean resu
 			if (mono_ex && mono_trace_eval_exception (mono_object_class (mono_ex)))
 				mono_print_thread_dump_from_ctx (ctx);
 		}
+		/* Log PlatformNotSupportedException with managed backtrace */
+		if (mono_ex && !strcmp (m_class_get_name (mono_object_class (obj)), "PlatformNotSupportedException")) {
+			char *trace = mono_exception_get_managed_backtrace (mono_ex);
+			g_printerr ("[PlatformNotSupported]\n%s\n", trace ? trace : "(no trace)");
+			g_free (trace);
+		}
 		/* Always log TypeInitializationException and SynchronizationLockException */
 		if (mono_ex && (!strcmp (m_class_get_name (mono_object_class (obj)), "TypeInitializationException") ||
 		                !strcmp (m_class_get_name (mono_object_class (obj)), "SynchronizationLockException"))) {
