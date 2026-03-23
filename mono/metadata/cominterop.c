@@ -4478,7 +4478,7 @@ mono_cominterop_emit_marshal_safearray (EmitMarshalContext *m, int argnum, MonoT
 										MarshalAction action)
 {
 	MonoMethodBuilder *mb = m->mb;
-	MonoMarshalVariant elem_type = spec->data.safearray_data.elem_type;
+	MonoMarshalVariant elem_type = spec ? spec->data.safearray_data.elem_type : 0;
 	int result_var;
 
 	if (elem_type == 0)

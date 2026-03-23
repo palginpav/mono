@@ -3453,6 +3453,18 @@ mono_emit_marshal (EmitMarshalContext *m, int argnum, MonoType *t,
 					return mono_cominterop_emit_marshal_safearray (m, argnum, t, spec, conv_arg, conv_arg_type, action);
 			}
 		}
+#if !defined(DISABLE_COM)
+		/* When no MarshalAs is specified for array parameters in managed callbacks
+		 * (native-to-managed wrappers), default to SafeArray marshaling.
+		 * This matches .NET Framework behavior where COM callbacks without explicit
+		 * MarshalAs use SafeArray for array parameters. Without this fallback,
+		 * emit_marshal_array throws MarshalDirectiveException for missing MarshalAs. */
+		if (!spec && (action == MARSHAL_ACTION_MANAGED_CONV_IN ||
+		              action == MARSHAL_ACTION_MANAGED_CONV_OUT ||
+		              action == MARSHAL_ACTION_MANAGED_INIT_OUT)) {
+			return mono_cominterop_emit_marshal_safearray (m, argnum, t, spec, conv_arg, conv_arg_type, action);
+		}
+#endif
 		return get_marshal_cb ()->emit_marshal_array (m, argnum, t, spec, conv_arg, conv_arg_type, action);
 	case MONO_TYPE_BOOLEAN:
 		return get_marshal_cb ()->emit_marshal_boolean (m, argnum, t, spec, conv_arg, conv_arg_type, action);
