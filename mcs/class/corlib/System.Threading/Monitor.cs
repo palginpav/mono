@@ -50,7 +50,10 @@ namespace System.Threading
 		static void ObjPulse(Object obj)
 		{
 			if (!Monitor_test_synchronised (obj))
+			{
+				Console.Error.WriteLine ("[SyncLockEx] Monitor.Pulse without lock: " + Environment.StackTrace);
 				throw new SynchronizationLockException("Object is not synchronized");
+			}
 
 			Monitor_pulse (obj);
 		}
@@ -61,7 +64,10 @@ namespace System.Threading
 		static void ObjPulseAll(Object obj)
 		{
 			if (!Monitor_test_synchronised (obj))
+			{
+				Console.Error.WriteLine ("[SyncLockEx] Monitor.PulseAll without lock: " + Environment.StackTrace);
 				throw new SynchronizationLockException("Object is not synchronized");
+			}
 
 			Monitor_pulse_all (obj);
 		}
@@ -74,7 +80,10 @@ namespace System.Threading
 			if (millisecondsTimeout < 0 && millisecondsTimeout != (int) Timeout.Infinite)
 				throw new ArgumentOutOfRangeException ("millisecondsTimeout");
 			if (!Monitor_test_synchronised (obj))
+			{
+				Console.Error.WriteLine ("[SyncLockEx] Monitor.Wait without lock: " + Environment.StackTrace);
 				throw new SynchronizationLockException ("Object is not synchronized");
+			}
 
 			try {
 #if FEATURE_REMOTING
