@@ -304,6 +304,18 @@ namespace System.Runtime.CompilerServices
             if (stateMachine == null) throw new ArgumentNullException("stateMachine");
             Contract.EndContractBlock();
 
+            // DIAG: trace non-generic ATMB.Start for ALL async Task methods
+            {
+                var smName = typeof(TStateMachine).FullName ?? typeof(TStateMachine).Name ?? "(null)";
+                if (smName.IndexOf("Image", StringComparison.Ordinal) >= 0
+                    || smName.IndexOf("VsImage", StringComparison.Ordinal) >= 0
+                    || smName.IndexOf("b__20", StringComparison.Ordinal) >= 0)
+                {
+                    Console.Error.WriteLine("DIAG ATMB_Task.Start: {0} tid={1}", smName,
+                        System.Threading.Thread.CurrentThread.ManagedThreadId);
+                }
+            }
+
             // Run the MoveNext method within a copy-on-write ExecutionContext scope.
             // This allows us to undo any ExecutionContext changes made in MoveNext,
             // so that they won't "leak" out of the first await.
@@ -459,6 +471,17 @@ namespace System.Runtime.CompilerServices
             if (stateMachine == null) throw new ArgumentNullException("stateMachine");
             Contract.EndContractBlock();
 
+            // DIAG: trace ALL state machine Starts
+            {
+                var smName = typeof(TStateMachine).FullName ?? typeof(TStateMachine).Name ?? "(null)";
+                if (smName.IndexOf("Image", StringComparison.Ordinal) >= 0
+                    || smName.IndexOf("ctor", StringComparison.Ordinal) >= 0
+                    || smName.IndexOf("b__20", StringComparison.Ordinal) >= 0)
+                {
+                    Console.Error.WriteLine("DIAG ATMB.Start: {0}", smName);
+                }
+            }
+
             // Run the MoveNext method within a copy-on-write ExecutionContext scope.
             // This allows us to undo any ExecutionContext changes made in MoveNext,
             // so that they won't "leak" out of the first await.
@@ -546,7 +569,7 @@ namespace System.Runtime.CompilerServices
                 // If this is our first await, such that we've not yet boxed the state machine, do so now.
                 if (m_coreState.m_stateMachine == null)
                 {
-                    // Force the Task to be initialized prior to the first suspending await so 
+                    // Force the Task to be initialized prior to the first suspending await so
                     // that the original stack-based builder has a reference to the right Task.
                     var builtTask = this.Task;
 
@@ -556,10 +579,28 @@ namespace System.Runtime.CompilerServices
                     m_coreState.PostBoxInitialization(stateMachine, runnerToInitialize, builtTask);
                 }
 
+                // DIAG: trace ALL state machines to find lost VsImageService continuation
+                {
+                    var smName = typeof(TStateMachine).FullName ?? "(null)";
+                    if (smName.Contains("VsImageService") || smName.Contains("ImageService") || smName.Contains("b__20"))
+                    {
+                        Console.Error.WriteLine("DIAG ATMB.AwaitUnsafe: SM={0} awaiter={1}", smName, typeof(TAwaiter).Name);
+                    }
+                }
+
                 awaiter.UnsafeOnCompleted(continuation);
             }
             catch (Exception e)
             {
+                // DIAG: trace swallowed exceptions
+                {
+                    var smName = typeof(TStateMachine).FullName;
+                    if (smName != null && smName.Contains("VsImageService"))
+                    {
+                        Console.Error.WriteLine("DIAG ATMB.AwaitUnsafe EXCEPTION: SM={0} ex={1}: {2}",
+                            smName, e.GetType().Name, e.Message);
+                    }
+                }
                 AsyncMethodBuilderCore.ThrowAsync(e, targetContext: null);
             }
         }
