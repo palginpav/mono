@@ -4813,11 +4813,6 @@ mono_marshal_safearray_create_internal (guint32 vt, guint32 cDims, SAFEARRAYBOUN
 #ifdef HOST_WIN32
 	gpointer safearray;
 	mono_marshal_win_safearray_create_internal (vt, cDims, rgsabound, &safearray);
-	if (!safearray && vt == VT_RECORD) {
-		/* VT_RECORD requires SafeArrayCreateEx with IRecordInfo which mono doesn't
-		 * provide. Fall back to VT_VARIANT which can hold any value type. */
-		mono_marshal_win_safearray_create_internal (VT_VARIANT, cDims, rgsabound, &safearray);
-	}
 	return safearray;
 #else
 	if (com_provider == MONO_COM_MS && init_com_provider_ms ())
@@ -4910,6 +4905,12 @@ mono_marshal_safearray_from_array_impl (MonoArrayHandle rarray, guint32 vt, Mono
 	}
 
 	gpointer safearray = mono_marshal_safearray_create_internal (vt, dim, bnd);
+	if (!safearray && vt == VT_RECORD) {
+		/* VT_RECORD requires SafeArrayCreateEx with IRecordInfo which mono doesn't
+		 * provide. Fall back to VT_VARIANT which can hold any value type. */
+		vt = VT_VARIANT;
+		safearray = mono_marshal_safearray_create_internal (vt, dim, bnd);
+	}
 	if (!safearray) {
 		mono_error_set_execution_engine (error, "Failed to create SafeArray");
 		goto leave;

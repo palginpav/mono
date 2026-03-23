@@ -76,7 +76,10 @@ static void
 mono_error_prepare (MonoErrorInternal *error)
 {
 	/* mono_error_set_* after a mono_error_cleanup without an intervening init */
-	g_assert (error->error_code != MONO_ERROR_CLEANUP_CALLED_SENTINEL);
+	if (G_UNLIKELY (error->error_code == MONO_ERROR_CLEANUP_CALLED_SENTINEL)) {
+		g_warning ("MonoError set after cleanup (double-use detected), reinitializing");
+		error_init (error);
+	}
 	if (error->error_code != MONO_ERROR_NONE)
 		return;
 
@@ -153,7 +156,8 @@ mono_error_cleanup (MonoError *oerror)
 	const guint16 error_flags = error->flags;
 #endif
 	/* Two cleanups in a row without an intervening init. */
-	g_assert (error_code != MONO_ERROR_CLEANUP_CALLED_SENTINEL);
+	if (G_UNLIKELY (error_code == MONO_ERROR_CLEANUP_CALLED_SENTINEL))
+		return;
 
 	/* Mempool stored error shouldn't be cleaned up */
 	g_assert (!is_boxed_error_flags (error_flags));
@@ -219,7 +223,8 @@ mono_error_get_message (MonoError *oerror)
 	if (error_code == MONO_ERROR_NONE)
 		return NULL;
 
-	g_assert (error_code != MONO_ERROR_CLEANUP_CALLED_SENTINEL);
+	if (G_UNLIKELY (error_code == MONO_ERROR_CLEANUP_CALLED_SENTINEL))
+		return NULL;
 
 	//Those are the simplified errors
 	switch (error_code) {
@@ -644,7 +649,11 @@ mono_error_prepare_exception (MonoError *oerror, MonoError *error_out)
 
 	const guint16 error_code = error->error_code;
 
-	g_assert (error_code != MONO_ERROR_CLEANUP_CALLED_SENTINEL);
+	if (G_UNLIKELY (error_code == MONO_ERROR_CLEANUP_CALLED_SENTINEL)) {
+		g_warning ("MonoError used after cleanup (double-use detected), reinitializing");
+		error_init (error);
+		goto exit;
+	}
 
 	switch (error_code) {
 	case MONO_ERROR_NONE:
