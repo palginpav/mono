@@ -5372,8 +5372,6 @@ mono_marshal_safearray_to_array_impl (gpointer safearray, MonoClass *aclass, gin
 	if (!sizes [0])
 		goto leave;
 
-		vt, dim, (unsigned long)sizes[0], m_class_get_name (aclass));
-
 	if (vt == VT_RECORD) {
 		/* VT_RECORD: elements are contiguous raw struct bytes.
 		 * Copy directly from SafeArray data into managed array elements. */

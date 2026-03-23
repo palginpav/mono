@@ -3495,12 +3495,7 @@ ves_icall_InternalInvoke (MonoReflectionMethodHandle method_handle, MonoObjectHa
 	 * greater flexibility.
 	 */
 	MonoMethod *m = method->method;
-	/* Log constructor invocations via Activator.CreateInstance for debugging */
-	if (m && (m->flags & 0x1800) == 0x1800) { /* RTSpecialName + SpecialName = .ctor */
-		const char *klass_name = m->klass ? m_class_get_name (m->klass) : "?";
-		const char *klass_ns = m->klass ? m_class_get_name_space (m->klass) : "?";
-		if (f) { fprintf (f, ".ctor %s.%s\n", klass_ns, klass_name); fclose (f); }
-	}
+	/* constructor logging removed */
 	MonoMethodSignature* const sig = mono_method_signature_internal (m);
 	MonoImage *image = NULL;
 	int pcount = 0;

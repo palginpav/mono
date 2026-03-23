@@ -540,8 +540,9 @@ namespace System.Runtime.InteropServices
 		{
 			if (e == null) return 0;
 
-			/* Log ALL non-trivial exceptions converted to HRESULT */
-			if (e._HResult < 0)
+			/* Log PlatformNotSupportedException with current call stack for diagnostics */
+			if (e._HResult == unchecked((int)0x80131539))
+				Console.Error.WriteLine ("[PlatformNotSupported] " + e.Message + "\n" + Environment.StackTrace);
 
 #if FEATURE_COMINTEROP
 			var errorInfo = new ManagedErrorInfo(e);
