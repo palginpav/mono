@@ -669,6 +669,7 @@ mono_monitor_ensure_owned (LockWord lw, guint32 id)
 
 	ERROR_DECL (error);
 	mono_error_set_synchronization_lock (error, "Object synchronization method was called from an unsynchronized block of code.");
+	g_printerr ("[SyncLockEx] Monitor not owned (id=%u, lw=0x%x)\n", id, (unsigned)lw.lock_word);
 	mono_error_set_pending_exception (error);
 	return FALSE;
 }
