@@ -4813,6 +4813,9 @@ mono_marshal_safearray_create_internal (guint32 vt, guint32 cDims, SAFEARRAYBOUN
 #ifdef HOST_WIN32
 	gpointer safearray;
 	mono_marshal_win_safearray_create_internal (vt, cDims, rgsabound, &safearray);
+	if (!safearray)
+		g_printerr ("[SafeArray] SafeArrayCreate(vt=%u, dims=%u, elems=%lu) returned NULL\n",
+			vt, cDims, rgsabound ? (unsigned long)rgsabound[0].cElements : 0);
 	return safearray;
 #else
 	if (com_provider == MONO_COM_MS && init_com_provider_ms ())
