@@ -476,7 +476,12 @@ namespace System.Runtime.CompilerServices
                 var smName = typeof(TStateMachine).FullName ?? typeof(TStateMachine).Name ?? "(null)";
                 if (smName.IndexOf("Image", StringComparison.Ordinal) >= 0
                     || smName.IndexOf("ctor", StringComparison.Ordinal) >= 0
-                    || smName.IndexOf("b__20", StringComparison.Ordinal) >= 0)
+                    || smName.IndexOf("b__20", StringComparison.Ordinal) >= 0
+                    || smName.IndexOf("ExportProvider", StringComparison.Ordinal) >= 0
+                    || smName.IndexOf("ComponentAssembl", StringComparison.Ordinal) >= 0
+                    || smName.IndexOf("ComponentModel", StringComparison.Ordinal) >= 0
+                    || smName.IndexOf("ValidateCache", StringComparison.Ordinal) >= 0
+                    || smName.IndexOf("GetFactory", StringComparison.Ordinal) >= 0)
                 {
                     Console.Error.WriteLine("DIAG ATMB.Start: {0}", smName);
                 }
@@ -579,10 +584,12 @@ namespace System.Runtime.CompilerServices
                     m_coreState.PostBoxInitialization(stateMachine, runnerToInitialize, builtTask);
                 }
 
-                // DIAG: trace ALL state machines to find lost VsImageService continuation
+                // DIAG: trace key async state machines to find MEF hang
                 {
                     var smName = typeof(TStateMachine).FullName ?? "(null)";
-                    if (smName.Contains("VsImageService") || smName.Contains("ImageService") || smName.Contains("b__20"))
+                    if (smName.Contains("ExportProvider") || smName.Contains("ComponentAssembl") ||
+                        smName.Contains("ComponentModel") || smName.Contains("ValidateCache") ||
+                        smName.Contains("VsImageService") || smName.Contains("ImageService") || smName.Contains("b__20"))
                     {
                         Console.Error.WriteLine("DIAG ATMB.AwaitUnsafe: SM={0} awaiter={1}", smName, typeof(TAwaiter).Name);
                     }
