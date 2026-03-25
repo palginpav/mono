@@ -6281,8 +6281,19 @@ mono_method_to_ir (MonoCompile *cfg, MonoMethod *method, MonoBasicBlock *start_b
 		generic_context = &generic_container->context;
 	cfg->generic_context = generic_context;
 
-	if (!cfg->gshared)
-		g_assert (!sig->has_type_parameters);
+	if (!cfg->gshared && sig->has_type_parameters) {
+		g_warning ("mono JIT: method '%s' has type parameters but gshared is not set (wrapper_type=%d)",
+			mono_method_full_name (method, TRUE), method->wrapper_type);
+		/* On Wine, COM interop proxies may trigger this for generic service calls.
+		 * Instead of asserting, treat as gshared to allow JIT compilation to proceed. */
+		if (method->wrapper_type == MONO_WRAPPER_COMINTEROP_INVOKE ||
+		    method->wrapper_type == MONO_WRAPPER_COMINTEROP ||
+		    method->wrapper_type == MONO_WRAPPER_NATIVE_TO_MANAGED) {
+			cfg->gshared = TRUE;
+		} else {
+			g_assert (!sig->has_type_parameters);
+		}
+	}
 
 	if (sig->generic_param_count && method->wrapper_type == MONO_WRAPPER_NONE) {
 		g_assert (method->is_inflated);

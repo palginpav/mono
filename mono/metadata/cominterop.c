@@ -59,10 +59,336 @@ mono_System_ComObject_ReleaseInterfaces (MonoComObjectHandle obj);
 
 #if !defined (DISABLE_COM) || defined (HOST_WIN32)
 
+#ifdef HOST_WIN32
+/*
+ * Wine compatibility: IAsyncServiceProvider sync fallback proxy.
+ *
+ * Native VS shell's IAsyncServiceProvider::QueryServiceAsync returns pending
+ * IVsTask that never completes on Wine. This proxy intercepts QueryServiceAsync
+ * and falls back to synchronous IServiceProvider::QueryService, returning a
+ * completed IVsTask.
+ */
+
+static const GUID IID_VS_IAsyncServiceProvider =
+	{0x257b63fa,0x8388,0x4feb,{0x9d,0xb8,0x3d,0xb2,0x2f,0x44,0x05,0xde}};
+static const GUID IID_VS_IVsTask =
+	{0x0b98eab8,0x00bb,0x45d0,{0xae,0x2f,0x3d,0xe3,0x5c,0xd6,0x82,0x35}};
+static const GUID IID_OLE_IServiceProvider =
+	{0x6d5140c1,0x7436,0x11ce,{0x80,0x34,0x00,0xaa,0x00,0x60,0x09,0xfa}};
+static const GUID IID_IUnknown_wine =
+	{0x00000000,0x0000,0x0000,{0xc0,0x00,0x00,0x00,0x00,0x00,0x00,0x46}};
+
+/* Direct COM vtable call helpers — avoid COM macros for cross-compile compatibility */
+static inline HRESULT wine_com_qi (gpointer punk, const GUID *iid, gpointer *out)
+{
+	typedef HRESULT (STDCALL *QI_fn)(gpointer, const GUID *, gpointer *);
+	return ((QI_fn *)(*(gpointer **)punk))[0](punk, iid, out);
+}
+static inline ULONG wine_com_addref (gpointer punk)
+{
+	typedef ULONG (STDCALL *AddRef_fn)(gpointer);
+	return ((AddRef_fn *)(*(gpointer **)punk))[1](punk);
+}
+static inline ULONG wine_com_release (gpointer punk)
+{
+	typedef ULONG (STDCALL *Release_fn)(gpointer);
+	return ((Release_fn *)(*(gpointer **)punk))[2](punk);
+}
+
+/* Minimal IVsTask for a completed result */
+static gpointer vstask_vtbl[17]; /* forward decl, filled in wine_create_completed_vstask */
+typedef struct {
+	gpointer *lpVtbl; /* pointer to vtable, standard COM layout */
+	volatile gint32 ref;
+	gpointer result; /* IUnknown* service object */
+} WineCompletedVsTask;
+
+static HRESULT STDCALL vstask_qi (gpointer iface, const GUID *riid, void **ppv)
+{
+	if (IsEqualGUID (riid, &IID_IUnknown_wine) || IsEqualGUID (riid, &IID_VS_IVsTask)) {
+		*ppv = iface;
+		wine_com_addref (iface);
+		return S_OK;
+	}
+	*ppv = NULL;
+	return E_NOINTERFACE;
+}
+
+static ULONG STDCALL vstask_addref (gpointer iface)
+{
+	WineCompletedVsTask *t = (WineCompletedVsTask *)iface;
+	return mono_atomic_inc_i32 (&t->ref);
+}
+
+static ULONG STDCALL vstask_release (gpointer iface)
+{
+	WineCompletedVsTask *t = (WineCompletedVsTask *)iface;
+	gint32 ref = mono_atomic_dec_i32 (&t->ref);
+	if (ref == 0) {
+		if (t->result) wine_com_release (t->result);
+		g_free (t);
+	}
+	return ref;
+}
+
+static HRESULT STDCALL vstask_stub_e (gpointer i, ...) { return E_NOTIMPL; }
+static HRESULT STDCALL vstask_stub_ok (gpointer i, ...) { return S_OK; }
+
+static HRESULT STDCALL vstask_get_result (gpointer iface, VARIANT *pResult)
+{
+	WineCompletedVsTask *t = (WineCompletedVsTask *)iface;
+	if (!pResult) return E_POINTER;
+	V_VT (pResult) = VT_UNKNOWN;
+	V_UNKNOWN (pResult) = (IUnknown *)t->result;
+	if (t->result) wine_com_addref (t->result);
+	return S_OK;
+}
+
+static HRESULT STDCALL vstask_wait_ex (gpointer i, int ms, DWORD opt, BOOL *res) { if (res) *res = TRUE; return S_OK; }
+static HRESULT STDCALL vstask_get_bool_false (gpointer i, BOOL *r) { if (r) *r = FALSE; return S_OK; }
+static HRESULT STDCALL vstask_get_bool_true (gpointer i, BOOL *r) { if (r) *r = TRUE; return S_OK; }
+static HRESULT STDCALL vstask_get_async_state (gpointer i, VARIANT *r) { if (r) V_VT(r) = VT_EMPTY; return S_OK; }
+static HRESULT STDCALL vstask_get_desc (gpointer i, BSTR *r) { if (r) *r = SysAllocString (L"WineCompletedTask"); return S_OK; }
+static HRESULT STDCALL vstask_set_desc (gpointer i, const WCHAR *v) { return S_OK; }
+
+static gboolean vstask_vtbl_inited = FALSE;
+
+static gpointer wine_create_completed_vstask (gpointer result)
+{
+	WineCompletedVsTask *t;
+	if (!vstask_vtbl_inited) {
+		vstask_vtbl[0]  = vstask_qi;
+		vstask_vtbl[1]  = vstask_addref;
+		vstask_vtbl[2]  = vstask_release;
+		vstask_vtbl[3]  = vstask_stub_e;       /* ContinueWith */
+		vstask_vtbl[4]  = vstask_stub_e;       /* ContinueWithEx */
+		vstask_vtbl[5]  = vstask_stub_ok;      /* Start */
+		vstask_vtbl[6]  = vstask_stub_ok;      /* Cancel */
+		vstask_vtbl[7]  = vstask_get_result;
+		vstask_vtbl[8]  = vstask_stub_ok;      /* AbortIfCanceled */
+		vstask_vtbl[9]  = vstask_stub_ok;      /* Wait */
+		vstask_vtbl[10] = vstask_wait_ex;
+		vstask_vtbl[11] = vstask_get_bool_false; /* IsFaulted */
+		vstask_vtbl[12] = vstask_get_bool_true;  /* IsCompleted */
+		vstask_vtbl[13] = vstask_get_bool_false; /* IsCanceled */
+		vstask_vtbl[14] = vstask_get_async_state;
+		vstask_vtbl[15] = vstask_get_desc;
+		vstask_vtbl[16] = vstask_set_desc;
+		vstask_vtbl_inited = TRUE;
+	}
+	t = g_new0 (WineCompletedVsTask, 1);
+	t->lpVtbl = vstask_vtbl;
+	t->ref = 1;
+	t->result = result;
+	if (result) wine_com_addref (result);
+	return (gpointer)t;
+}
+
+/* IAsyncServiceProvider proxy with sync fallback */
+static gpointer asp_vtbl[4]; /* forward decl */
+typedef struct {
+	gpointer *lpVtbl;  /* pointer to vtable, standard COM layout */
+	volatile gint32 ref;
+	gpointer inner;     /* original native IAsyncServiceProvider */
+	gpointer site_unk;  /* site IUnknown for QI to IServiceProvider */
+} WineAsyncServiceProviderProxy;
+
+typedef HRESULT (STDCALL *QueryService_fn)(gpointer psp, const GUID *guidService,
+	const GUID *riid, gpointer *ppvObject);
+
+static HRESULT STDCALL asp_qi (gpointer iface, const GUID *riid, void **ppv)
+{
+	WineAsyncServiceProviderProxy *p = (WineAsyncServiceProviderProxy *)iface;
+	if (IsEqualGUID (riid, &IID_IUnknown_wine) || IsEqualGUID (riid, &IID_VS_IAsyncServiceProvider)) {
+		*ppv = iface;
+		wine_com_addref (iface);
+		return S_OK;
+	}
+	if (p->site_unk)
+		return wine_com_qi (p->site_unk, riid, (gpointer *)ppv);
+	*ppv = NULL;
+	return E_NOINTERFACE;
+}
+
+static ULONG STDCALL asp_addref (gpointer iface)
+{
+	WineAsyncServiceProviderProxy *p = (WineAsyncServiceProviderProxy *)iface;
+	return mono_atomic_inc_i32 (&p->ref);
+}
+
+static ULONG STDCALL asp_release (gpointer iface)
+{
+	WineAsyncServiceProviderProxy *p = (WineAsyncServiceProviderProxy *)iface;
+	gint32 ref = mono_atomic_dec_i32 (&p->ref);
+	if (ref == 0) {
+		if (p->inner) wine_com_release (p->inner);
+		if (p->site_unk) wine_com_release (p->site_unk);
+		g_free (p);
+	}
+	return ref;
+}
+
+static HRESULT STDCALL asp_query_service_async (gpointer iface, const GUID *guidService, gpointer *ppTask)
+{
+	WineAsyncServiceProviderProxy *p = (WineAsyncServiceProviderProxy *)iface;
+	gpointer sp = NULL;
+	gpointer service = NULL;
+	HRESULT hr;
+
+	if (!ppTask) return E_POINTER;
+	*ppTask = NULL;
+
+	/* Try synchronous IServiceProvider::QueryService first */
+	if (p->site_unk) {
+		hr = wine_com_qi (p->site_unk, &IID_OLE_IServiceProvider, &sp);
+		if (SUCCEEDED (hr) && sp) {
+			QueryService_fn qs = ((QueryService_fn *)(*(gpointer **)sp))[3];
+			hr = qs (sp, guidService, &IID_IUnknown_wine, &service);
+			wine_com_release (sp);
+
+			if (SUCCEEDED (hr) && service) {
+				*ppTask = wine_create_completed_vstask (service);
+				wine_com_release (service);
+				return *ppTask ? S_OK : E_OUTOFMEMORY;
+			}
+		}
+	}
+
+	/* Fallback: call original native QueryServiceAsync */
+	if (p->inner) {
+		typedef HRESULT (STDCALL *QueryServiceAsync_fn)(gpointer, const GUID *, gpointer *);
+		QueryServiceAsync_fn fn = ((QueryServiceAsync_fn *)(*(gpointer **)p->inner))[3];
+		return fn (p->inner, guidService, ppTask);
+	}
+
+	return E_NOINTERFACE;
+}
+
+static gboolean asp_vtbl_inited = FALSE;
+
+static gpointer wine_wrap_async_service_provider (gpointer native_asp, gpointer site_unk)
+{
+	WineAsyncServiceProviderProxy *p;
+	if (!asp_vtbl_inited) {
+		asp_vtbl[0] = asp_qi;
+		asp_vtbl[1] = asp_addref;
+		asp_vtbl[2] = asp_release;
+		asp_vtbl[3] = asp_query_service_async;
+		asp_vtbl_inited = TRUE;
+	}
+	p = g_new0 (WineAsyncServiceProviderProxy, 1);
+	p->lpVtbl = asp_vtbl;
+	p->ref = 1;
+	p->inner = native_asp;
+	if (native_asp) wine_com_addref (native_asp);
+	p->site_unk = site_unk;
+	if (site_unk) wine_com_addref (site_unk);
+	return (gpointer)p;
+}
+
+/*
+ * Vtable hooking approach: instead of replacing the COM object (which breaks
+ * mono generic interop), we replace the QueryServiceAsync function pointer
+ * in the native vtable with our wrapper. The wrapper tries sync QueryService
+ * first, then falls back to the original native implementation.
+ *
+ * Side table to store original function pointer and site IUnknown per vtable.
+ */
+static GHashTable *asp_hook_table = NULL; /* vtable_ptr → original QueryServiceAsync fn */
+static GHashTable *asp_site_table = NULL; /* vtable_ptr → site IUnknown */
+
+typedef HRESULT (STDCALL *QueryServiceAsync_fn)(gpointer self, const GUID *guidService, gpointer *ppTask);
+
+static HRESULT STDCALL hooked_query_service_async (gpointer self, const GUID *guidService, gpointer *ppTask)
+{
+	gpointer *vtbl_ptr = *(gpointer **)self;
+	gpointer site_unk = NULL;
+	gpointer sp = NULL;
+	gpointer service = NULL;
+	QueryServiceAsync_fn original_fn = NULL;
+	HRESULT hr;
+
+	if (!ppTask) return E_POINTER;
+	*ppTask = NULL;
+
+	/* Look up site and original function from side tables */
+	if (asp_site_table)
+		site_unk = g_hash_table_lookup (asp_site_table, vtbl_ptr);
+	if (asp_hook_table)
+		original_fn = (QueryServiceAsync_fn)g_hash_table_lookup (asp_hook_table, vtbl_ptr);
+
+	/* Try synchronous IServiceProvider::QueryService first */
+	if (site_unk) {
+		hr = wine_com_qi (site_unk, &IID_OLE_IServiceProvider, &sp);
+		if (SUCCEEDED (hr) && sp) {
+			QueryService_fn qs = ((QueryService_fn *)(*(gpointer **)sp))[3];
+			hr = qs (sp, guidService, &IID_IUnknown_wine, &service);
+			wine_com_release (sp);
+
+			if (SUCCEEDED (hr) && service) {
+				*ppTask = wine_create_completed_vstask (service);
+				wine_com_release (service);
+				return *ppTask ? S_OK : E_OUTOFMEMORY;
+			}
+		}
+	}
+
+	/* Fallback to original native QueryServiceAsync */
+	if (original_fn)
+		return original_fn (self, guidService, ppTask);
+
+	return E_NOINTERFACE;
+}
+
+static void wine_hook_async_service_provider (gpointer asp_iface, gpointer site_unk)
+{
+	gpointer *vtbl_ptr;
+	gpointer *vtbl;
+	DWORD old_protect;
+
+	if (!asp_iface) return;
+
+	vtbl_ptr = *(gpointer **)asp_iface;
+	vtbl = vtbl_ptr;
+
+	/* Check if already hooked */
+	if (vtbl[3] == hooked_query_service_async)
+		return;
+
+	/* Initialize side tables */
+	if (!asp_hook_table)
+		asp_hook_table = g_hash_table_new (NULL, NULL);
+	if (!asp_site_table)
+		asp_site_table = g_hash_table_new (NULL, NULL);
+
+	/* Save original function and site */
+	g_hash_table_insert (asp_hook_table, vtbl_ptr, vtbl[3]);
+	g_hash_table_insert (asp_site_table, vtbl_ptr, site_unk);
+
+	/* Replace vtable entry — need to unprotect memory first */
+	if (VirtualProtect (&vtbl[3], sizeof (gpointer), PAGE_READWRITE, &old_protect)) {
+		vtbl[3] = hooked_query_service_async;
+		VirtualProtect (&vtbl[3], sizeof (gpointer), old_protect, &old_protect);
+	}
+}
+#endif /* HOST_WIN32 */
+
 static int
 mono_IUnknown_QueryInterface (MonoIUnknown *pUnk, gconstpointer riid, gpointer* ppv)
 {
 	g_assert (pUnk);
+#ifdef HOST_WIN32
+	/* Hook IAsyncServiceProvider vtable to add sync QueryService fallback.
+	 * Instead of replacing COM identity (which breaks generic interop),
+	 * replace the QueryServiceAsync function pointer in the vtable. */
+	if (IsEqualGUID (riid, &IID_VS_IAsyncServiceProvider)) {
+		int hr = pUnk->vtable->QueryInterface (pUnk, riid, ppv);
+		if (hr == S_OK && *ppv) {
+			wine_hook_async_service_provider (*ppv, (gpointer)pUnk);
+		}
+		return hr;
+	}
+#endif
 	return pUnk->vtable->QueryInterface (pUnk, riid, ppv);
 }
 
