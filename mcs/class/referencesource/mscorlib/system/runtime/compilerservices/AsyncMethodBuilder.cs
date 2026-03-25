@@ -591,7 +591,18 @@ namespace System.Runtime.CompilerServices
                         smName.Contains("ComponentModel") || smName.Contains("ValidateCache") ||
                         smName.Contains("VsImageService") || smName.Contains("ImageService") || smName.Contains("b__20"))
                     {
-                        Console.Error.WriteLine("DIAG ATMB.AwaitUnsafe: SM={0} awaiter={1}", smName, typeof(TAwaiter).Name);
+                        // Log awaiter type, and if it wraps a Task, log Task.Id and Status
+                        string extra = "";
+                        try {
+                            var taskProp = typeof(TAwaiter).GetProperty("Task",
+                                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+                            if (taskProp != null) {
+                                var task = taskProp.GetValue(awaiter) as System.Threading.Tasks.Task;
+                                if (task != null) extra = $" TaskId={task.Id} Status={task.Status}";
+                            }
+                        } catch {}
+                        Console.Error.WriteLine("DIAG ATMB.AwaitUnsafe: SM={0} awaiter={1}{2} tid={3}",
+                            smName, typeof(TAwaiter).Name, extra, System.Threading.Thread.CurrentThread.ManagedThreadId);
                     }
                 }
 
