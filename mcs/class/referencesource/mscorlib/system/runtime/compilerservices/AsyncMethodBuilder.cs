@@ -481,7 +481,9 @@ namespace System.Runtime.CompilerServices
                     || smName.IndexOf("ComponentAssembl", StringComparison.Ordinal) >= 0
                     || smName.IndexOf("ComponentModel", StringComparison.Ordinal) >= 0
                     || smName.IndexOf("ValidateCache", StringComparison.Ordinal) >= 0
-                    || smName.IndexOf("GetFactory", StringComparison.Ordinal) >= 0)
+                    || smName.IndexOf("GetFactory", StringComparison.Ordinal) >= 0
+                    || smName.IndexOf("ExtensionManagement", StringComparison.Ordinal) >= 0
+                    || smName.IndexOf("d__34", StringComparison.Ordinal) >= 0)
                 {
                     Console.Error.WriteLine("DIAG ATMB.Start: {0}", smName);
                 }
@@ -589,6 +591,7 @@ namespace System.Runtime.CompilerServices
                     var smName = typeof(TStateMachine).FullName ?? "(null)";
                     if (smName.Contains("ExportProvider") || smName.Contains("ComponentAssembl") ||
                         smName.Contains("ComponentModel") || smName.Contains("ValidateCache") ||
+                        smName.Contains("ExtensionManagement") || smName.Contains("d__34") ||
                         smName.Contains("VsImageService") || smName.Contains("ImageService") || smName.Contains("b__20"))
                     {
                         // Log awaiter type, and if it wraps a Task, log Task.Id and Status
