@@ -304,18 +304,6 @@ namespace System.Runtime.CompilerServices
             if (stateMachine == null) throw new ArgumentNullException("stateMachine");
             Contract.EndContractBlock();
 
-            // DIAG: trace non-generic ATMB.Start for ALL async Task methods
-            {
-                var smName = typeof(TStateMachine).FullName ?? typeof(TStateMachine).Name ?? "(null)";
-                if (smName.IndexOf("Image", StringComparison.Ordinal) >= 0
-                    || smName.IndexOf("VsImage", StringComparison.Ordinal) >= 0
-                    || smName.IndexOf("b__20", StringComparison.Ordinal) >= 0)
-                {
-                    Console.Error.WriteLine("DIAG ATMB_Task.Start: {0} tid={1}", smName,
-                        System.Threading.Thread.CurrentThread.ManagedThreadId);
-                }
-            }
-
             // Run the MoveNext method within a copy-on-write ExecutionContext scope.
             // This allows us to undo any ExecutionContext changes made in MoveNext,
             // so that they won't "leak" out of the first await.
@@ -471,24 +459,6 @@ namespace System.Runtime.CompilerServices
             if (stateMachine == null) throw new ArgumentNullException("stateMachine");
             Contract.EndContractBlock();
 
-            // DIAG: trace ALL state machine Starts
-            {
-                var smName = typeof(TStateMachine).FullName ?? typeof(TStateMachine).Name ?? "(null)";
-                if (smName.IndexOf("Image", StringComparison.Ordinal) >= 0
-                    || smName.IndexOf("ctor", StringComparison.Ordinal) >= 0
-                    || smName.IndexOf("b__20", StringComparison.Ordinal) >= 0
-                    || smName.IndexOf("ExportProvider", StringComparison.Ordinal) >= 0
-                    || smName.IndexOf("ComponentAssembl", StringComparison.Ordinal) >= 0
-                    || smName.IndexOf("ComponentModel", StringComparison.Ordinal) >= 0
-                    || smName.IndexOf("ValidateCache", StringComparison.Ordinal) >= 0
-                    || smName.IndexOf("GetFactory", StringComparison.Ordinal) >= 0
-                    || smName.IndexOf("ExtensionManagement", StringComparison.Ordinal) >= 0
-                    || smName.IndexOf("d__34", StringComparison.Ordinal) >= 0)
-                {
-                    Console.Error.WriteLine("DIAG ATMB.Start: {0}", smName);
-                }
-            }
-
             // Run the MoveNext method within a copy-on-write ExecutionContext scope.
             // This allows us to undo any ExecutionContext changes made in MoveNext,
             // so that they won't "leak" out of the first await.
@@ -586,42 +556,10 @@ namespace System.Runtime.CompilerServices
                     m_coreState.PostBoxInitialization(stateMachine, runnerToInitialize, builtTask);
                 }
 
-                // DIAG: trace key async state machines to find MEF hang
-                {
-                    var smName = typeof(TStateMachine).FullName ?? "(null)";
-                    if (smName.Contains("ExportProvider") || smName.Contains("ComponentAssembl") ||
-                        smName.Contains("ComponentModel") || smName.Contains("ValidateCache") ||
-                        smName.Contains("ExtensionManagement") || smName.Contains("d__34") ||
-                        smName.Contains("VsImageService") || smName.Contains("ImageService") || smName.Contains("b__20"))
-                    {
-                        // Log awaiter type, and if it wraps a Task, log Task.Id and Status
-                        string extra = "";
-                        try {
-                            var taskProp = typeof(TAwaiter).GetProperty("Task",
-                                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
-                            if (taskProp != null) {
-                                var task = taskProp.GetValue(awaiter) as System.Threading.Tasks.Task;
-                                if (task != null) extra = $" TaskId={task.Id} Status={task.Status}";
-                            }
-                        } catch {}
-                        Console.Error.WriteLine("DIAG ATMB.AwaitUnsafe: SM={0} awaiter={1}{2} tid={3}",
-                            smName, typeof(TAwaiter).Name, extra, System.Threading.Thread.CurrentThread.ManagedThreadId);
-                    }
-                }
-
                 awaiter.UnsafeOnCompleted(continuation);
             }
             catch (Exception e)
             {
-                // DIAG: trace swallowed exceptions
-                {
-                    var smName = typeof(TStateMachine).FullName;
-                    if (smName != null && smName.Contains("VsImageService"))
-                    {
-                        Console.Error.WriteLine("DIAG ATMB.AwaitUnsafe EXCEPTION: SM={0} ex={1}: {2}",
-                            smName, e.GetType().Name, e.Message);
-                    }
-                }
                 AsyncMethodBuilderCore.ThrowAsync(e, targetContext: null);
             }
         }

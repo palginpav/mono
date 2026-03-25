@@ -9478,6 +9478,40 @@ calli_end:
 
 			ftype = mono_field_get_type_internal (field);
 
+#ifdef HOST_WIN32
+			/* Wine: null asyncProvider + force throwOnFailure=false on VS AsyncPackage.
+			 * On Wine, managed AsyncPackage.GetGlobalServiceAsync hangs forever because
+			 * the async service resolution path (via package demand-loading) doesn't work.
+			 * Nulling asyncProvider makes VS fall back to sync GetService via OleServiceProvider.
+			 * Only targets Microsoft.VisualStudio.Shell.AsyncPackage (exact namespace match). */
+			if (il_op == MONO_CEE_LDFLD && field->name && field->parent) {
+				const char *ns = m_class_get_name_space (field->parent);
+				const char *cn = m_class_get_name (field->parent);
+				if (ns && cn) {
+					/* AsyncPackage.asyncProvider → null */
+					if (strcmp (field->name, "asyncProvider") == 0 &&
+					    strcmp (ns, "Microsoft.VisualStudio.Shell") == 0 &&
+					    strcmp (cn, "AsyncPackage") == 0) {
+						--sp;
+						EMIT_NEW_PCONST (cfg, ins, NULL);
+						*sp++ = ins;
+						ip += 5;
+						break;
+					}
+					/* <GetServiceAsync>d__57.throwOnFailure → false */
+					if (strcmp (field->name, "throwOnFailure") == 0 &&
+					    strcmp (ns, "Microsoft.VisualStudio.Shell") == 0 &&
+					    strstr (cn, "<GetServiceAsync>") != NULL) {
+						--sp;
+						EMIT_NEW_ICONST (cfg, ins, 0);
+						*sp++ = ins;
+						ip += 5;
+						break;
+					}
+				}
+			}
+#endif
+
 			/*
 			 * LDFLD etc. is usable on static fields as well, so convert those cases to
 			 * the static case.

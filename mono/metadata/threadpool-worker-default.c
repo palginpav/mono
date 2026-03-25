@@ -306,10 +306,6 @@ mono_threadpool_worker_cleanup (void)
 	mono_refcount_dec (&worker);
 }
 
-static gint32 diag_push_total = 0;
-static gint32 diag_pop_total = 0;
-static gint32 diag_dispatch_total = 0;
-
 static void
 work_item_push (void)
 {
@@ -321,8 +317,6 @@ work_item_push (void)
 
 		new_ = old + 1;
 	} while (mono_atomic_cas_i32 (&worker.work_items_count, new_, old) != old);
-
-	mono_atomic_inc_i32 (&diag_push_total);
 }
 
 static gboolean
@@ -340,7 +334,6 @@ work_item_try_pop (void)
 		new_ = old - 1;
 	} while (mono_atomic_cas_i32 (&worker.work_items_count, new_, old) != old);
 
-	mono_atomic_inc_i32 (&diag_pop_total);
 	return TRUE;
 }
 
@@ -505,7 +498,6 @@ worker_thread (gpointer unused)
 		mono_trace (G_LOG_LEVEL_DEBUG, MONO_TRACE_THREADPOOL, "[%p] worker executing",
 			GUINT_TO_POINTER (MONO_NATIVE_THREAD_ID_TO_UINT (mono_native_thread_id_get ())));
 
-		mono_atomic_inc_i32 (&diag_dispatch_total);
 		worker.callback ();
 	}
 
@@ -613,35 +605,25 @@ static void monitor_ensure_running (void);
 static void
 worker_request (void)
 {
-	static gint32 req_count = 0;
-	gint32 c = mono_atomic_inc_i32 (&req_count);
-
-	if (worker.suspended) {
-		if (c < 200)
-			g_print ("DIAG tp_req[%d] SUSPENDED tid=%lu\n", c, (unsigned long)mono_native_thread_id_get());
+	if (worker.suspended)
 		return;
-	}
 
 	monitor_ensure_running ();
 
 	if (worker_try_unpark ()) {
-		/* only log first 20 and then every 50th */
-		if (c <= 20 || c % 50 == 0)
-			g_print ("DIAG tp_req[%d] unparked tid=%lu push=%d pop=%d disp=%d\n",
-				c, (unsigned long)mono_native_thread_id_get(),
-				mono_atomic_load_i32(&diag_push_total),
-				mono_atomic_load_i32(&diag_pop_total),
-				mono_atomic_load_i32(&diag_dispatch_total));
+		mono_trace (G_LOG_LEVEL_DEBUG, MONO_TRACE_THREADPOOL, "[%p] request worker, unparked",
+			GUINT_TO_POINTER (MONO_NATIVE_THREAD_ID_TO_UINT (mono_native_thread_id_get ())));
 		return;
 	}
 
 	if (worker_try_create ()) {
-		g_print ("DIAG tp_req[%d] CREATED tid=%lu\n", c, (unsigned long)mono_native_thread_id_get());
+		mono_trace (G_LOG_LEVEL_DEBUG, MONO_TRACE_THREADPOOL, "[%p] request worker, created",
+			GUINT_TO_POINTER (MONO_NATIVE_THREAD_ID_TO_UINT (mono_native_thread_id_get ())));
 		return;
 	}
 
-	g_print ("DIAG tp_req[%d] FAILED tid=%lu pending=%d\n",
-		c, (unsigned long)mono_native_thread_id_get(), work_item_count());
+	mono_trace (G_LOG_LEVEL_DEBUG, MONO_TRACE_THREADPOOL, "[%p] request worker, failed",
+		GUINT_TO_POINTER (MONO_NATIVE_THREAD_ID_TO_UINT (mono_native_thread_id_get ())));
 }
 
 static gboolean
@@ -1243,20 +1225,10 @@ mono_threadpool_worker_set_suspended (gboolean suspended)
 	if (!mono_refcount_tryinc (&worker))
 		return;
 
-	g_print ("DIAG threadpool: set_suspended(%s) tid=%lu\n", suspended ? "TRUE" : "FALSE", (unsigned long)mono_native_thread_id_get());
 	worker.suspended = suspended;
 	if (!suspended)
 		worker_request ();
 
 	mono_refcount_dec (&worker);
-}
-
-void
-mono_threadpool_worker_get_diag (gint32 *push, gint32 *pop, gint32 *dispatch, gint32 *pending)
-{
-	*push = mono_atomic_load_i32 (&diag_push_total);
-	*pop = mono_atomic_load_i32 (&diag_pop_total);
-	*dispatch = mono_atomic_load_i32 (&diag_dispatch_total);
-	*pending = mono_atomic_load_i32 (&worker.work_items_count);
 }
 

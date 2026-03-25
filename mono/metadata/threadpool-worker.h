@@ -36,7 +36,5 @@ mono_threadpool_worker_set_max (gint32 value);
 void
 mono_threadpool_worker_set_suspended (gboolean suspended);
 
-void
-mono_threadpool_worker_get_diag (gint32 *push, gint32 *pop, gint32 *dispatch, gint32 *pending);
 
 #endif /* _MONO_METADATA_THREADPOOL_WORKER_H */

@@ -35,8 +35,6 @@
 #include <mono/utils/mono-os-wait.h>
 #include "external-only.h"
 #include "icall-decl.h"
-#include <mono/metadata/loader.h>
-#include <mono/metadata/threadpool-worker.h>
 
 /*
  * Pull the list of opcodes
@@ -1485,15 +1483,6 @@ mono_monitor_wait (MonoObjectHandle obj_handle, guint32 ms, MonoBoolean allow_in
 MonoBoolean
 ves_icall_System_Threading_Monitor_Monitor_wait (MonoObjectHandle obj_handle, guint32 ms, MonoError* error)
 {
-	static int diag_count = 0;
-	/* Log non-infinite waits (6s timeout = the VS blocking pattern) */
-	if (diag_count < 30 && ms != 4294967295u) {
-		gint32 push, pop, dispatch, pending;
-		mono_threadpool_worker_get_diag (&push, &pop, &dispatch, &pending);
-		g_print ("DIAG Monitor.Wait(ms=%u) tid=%lu | tp: push=%d pop=%d dispatch=%d pending=%d\n",
-			ms, (unsigned long)mono_native_thread_id_get(), push, pop, dispatch, pending);
-		diag_count++;
-	}
 	return mono_monitor_wait (obj_handle, ms, TRUE, error);
 }
 void
