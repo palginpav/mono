@@ -52,10 +52,67 @@ namespace Mono.Btls
 {
 	class X509CertificateImplBtls : X509Certificate2ImplUnix
 	{
+		const int X509_ASN_ENCODING = 0x00000001;
+		const int PKCS_7_ASN_ENCODING = 0x00010000;
+		const int CERT_KEY_PROV_INFO_PROP_ID = 2;
+		const int PROV_RSA_FULL = 1;
+		const int CRYPT_NEWKEYSET = 0x00000008;
+		const int AT_KEYEXCHANGE = 1;
+		const int AT_SIGNATURE = 2;
+		const int PRIVATEKEYBLOB = 7;
+		const int CUR_BLOB_VERSION = 2;
+		const int CALG_RSA_KEYX = 0x0000a400;
+
+		[DllImport ("crypt32", SetLastError = true)]
+		static extern IntPtr CertCreateCertificateContext (
+			int dwCertEncodingType, byte[] pbCertEncoded, int cbCertEncoded);
+
+		[DllImport ("crypt32", SetLastError = true)]
+		[return: MarshalAs (UnmanagedType.Bool)]
+		static extern bool CertFreeCertificateContext (IntPtr pCertContext);
+
+		[DllImport ("crypt32", SetLastError = true)]
+		[return: MarshalAs (UnmanagedType.Bool)]
+		static extern bool CertSetCertificateContextProperty (
+			IntPtr pCertContext, int dwPropId, int dwFlags, IntPtr pvData);
+
+		[DllImport ("advapi32", SetLastError = true, CharSet = CharSet.Unicode)]
+		[return: MarshalAs (UnmanagedType.Bool)]
+		static extern bool CryptAcquireContextW (
+			out IntPtr phProv, string szContainer, string szProvider,
+			int dwProvType, int dwFlags);
+
+		[DllImport ("advapi32", SetLastError = true)]
+		[return: MarshalAs (UnmanagedType.Bool)]
+		static extern bool CryptImportKey (
+			IntPtr hProv, byte[] pbData, int dwDataLen,
+			IntPtr hPubKey, int dwFlags, out IntPtr phKey);
+
+		[DllImport ("advapi32", SetLastError = true)]
+		[return: MarshalAs (UnmanagedType.Bool)]
+		static extern bool CryptDestroyKey (IntPtr hKey);
+
+		[DllImport ("advapi32", SetLastError = true)]
+		[return: MarshalAs (UnmanagedType.Bool)]
+		static extern bool CryptReleaseContext (IntPtr hProv, int dwFlags);
+
+		[StructLayout (LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+		struct CRYPT_KEY_PROV_INFO {
+			public string pwszContainerName;
+			public string pwszProvName;
+			public int dwProvType;
+			public int dwFlags;
+			public int cProvParam;
+			public IntPtr rgProvParam;
+			public int dwKeySpec;
+		}
+
 		MonoBtlsX509 x509;
 		MonoBtlsKey nativePrivateKey;
 		X509CertificateImplCollection intermediateCerts;
 		PublicKey publicKey;
+		IntPtr capiCertContext;
+		string capiKeyContainer;
 
 		internal X509CertificateImplBtls ()
 		{
@@ -124,7 +181,89 @@ namespace Mono.Btls
 		}
 
 		public override IntPtr Handle {
-			get { return x509.Handle.DangerousGetHandle (); }
+			get {
+				if (capiCertContext == IntPtr.Zero && x509 != null && x509.IsValid) {
+					try {
+						byte[] rawData = x509.GetRawData (MonoBtlsX509Format.DER);
+						if (rawData != null && rawData.Length > 0) {
+							capiCertContext = CertCreateCertificateContext (
+								X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
+								rawData, rawData.Length);
+							if (capiCertContext == IntPtr.Zero) {
+								int err = Marshal.GetLastWin32Error ();
+								Console.Error.WriteLine (
+									"[wine-mono] CertCreateCertificateContext failed: err=" + err +
+									" derLen=" + rawData.Length);
+							}
+							if (capiCertContext != IntPtr.Zero && nativePrivateKey != null)
+								BindPrivateKeyToCertContext ();
+						} else {
+							Console.Error.WriteLine (
+								"[wine-mono] Handle: GetRawData returned " +
+								(rawData == null ? "null" : "empty"));
+						}
+					} catch (Exception ex) {
+						Console.Error.WriteLine (
+							"[wine-mono] Handle exception: " + ex.GetType ().Name + ": " + ex.Message);
+					}
+				}
+				if (capiCertContext != IntPtr.Zero)
+					return capiCertContext;
+				return x509 != null ? x509.Handle.DangerousGetHandle () : IntPtr.Zero;
+			}
+		}
+
+		void BindPrivateKeyToCertContext ()
+		{
+			try {
+				/* Export the private key as RSA parameters and import into a
+				 * temporary CryptoAPI key container so that Windows code calling
+				 * CertGetCertificateContextProperty(CERT_KEY_PROV_INFO) can
+				 * find the private key via the CSP. */
+				byte[] keyBytes = nativePrivateKey.GetBytes (true);
+				if (keyBytes == null || keyBytes.Length == 0)
+					return;
+
+				/* Decode RSA private key and create CSP parameters */
+				RSA rsa = PKCS8.PrivateKeyInfo.DecodeRSA (keyBytes);
+				if (rsa == null)
+					return;
+
+				RSAParameters rsaParams = rsa.ExportParameters (true);
+
+				/* Use RSACryptoServiceProvider which automatically creates a key container */
+				var csp = new RSACryptoServiceProvider ();
+				csp.ImportParameters (rsaParams);
+
+				/* Get the container name from the CSP */
+				CspKeyContainerInfo info = csp.CspKeyContainerInfo;
+				capiKeyContainer = info.KeyContainerName;
+				string provName = info.ProviderName;
+				int provType = info.ProviderType;
+				int keySpec = (int)info.KeyNumber;
+
+				/* Set CERT_KEY_PROV_INFO on the cert context */
+				var keyProvInfo = new CRYPT_KEY_PROV_INFO ();
+				keyProvInfo.pwszContainerName = capiKeyContainer;
+				keyProvInfo.pwszProvName = provName;
+				keyProvInfo.dwProvType = provType;
+				keyProvInfo.dwFlags = 0;
+				keyProvInfo.cProvParam = 0;
+				keyProvInfo.rgProvParam = IntPtr.Zero;
+				keyProvInfo.dwKeySpec = keySpec;
+
+				IntPtr pInfo = Marshal.AllocHGlobal (Marshal.SizeOf (keyProvInfo));
+				try {
+					Marshal.StructureToPtr (keyProvInfo, pInfo, false);
+					CertSetCertificateContextProperty (capiCertContext,
+						CERT_KEY_PROV_INFO_PROP_ID, 0, pInfo);
+				} finally {
+					Marshal.FreeHGlobal (pInfo);
+				}
+			} catch {
+				/* If private key binding fails, cert context still works for
+				 * public-key-only operations (verification, etc.) */
+			}
 		}
 
 		public override IntPtr GetNativeAppleCertificate ()
@@ -176,6 +315,10 @@ namespace Mono.Btls
 
 		protected override void Dispose (bool disposing)
 		{
+			if (capiCertContext != IntPtr.Zero) {
+				CertFreeCertificateContext (capiCertContext);
+				capiCertContext = IntPtr.Zero;
+			}
 			if (x509 != null) {
 				x509.Dispose ();
 				x509 = null;

@@ -55,10 +55,39 @@ namespace System.Security.Cryptography.X509Certificates
 {
 	internal class X509Certificate2ImplMono : X509Certificate2ImplUnix
 	{
+		const int X509_ASN_ENCODING = 0x00000001;
+		const int PKCS_7_ASN_ENCODING = 0x00010000;
+		const int CERT_KEY_PROV_INFO_PROP_ID = 2;
+
+		[DllImport ("crypt32", SetLastError = true)]
+		static extern IntPtr CertCreateCertificateContext (
+			int dwCertEncodingType, byte[] pbCertEncoded, int cbCertEncoded);
+
+		[DllImport ("crypt32", SetLastError = true)]
+		[return: MarshalAs (UnmanagedType.Bool)]
+		static extern bool CertFreeCertificateContext (IntPtr pCertContext);
+
+		[DllImport ("crypt32", SetLastError = true)]
+		[return: MarshalAs (UnmanagedType.Bool)]
+		static extern bool CertSetCertificateContextProperty (
+			IntPtr pCertContext, int dwPropId, int dwFlags, IntPtr pvData);
+
+		[StructLayout (LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+		struct CRYPT_KEY_PROV_INFO {
+			public string pwszContainerName;
+			public string pwszProvName;
+			public int dwProvType;
+			public int dwFlags;
+			public int cProvParam;
+			public IntPtr rgProvParam;
+			public int dwKeySpec;
+		}
+
 		PublicKey _publicKey;
 		X509CertificateImplCollection intermediateCerts;
 
 		MX.X509Certificate _cert;
+		IntPtr capiCertContext;
 
 		static string empty_error = Locale.GetText ("Certificate instance is empty.");
 
@@ -69,7 +98,51 @@ namespace System.Security.Cryptography.X509Certificates
 		}
 
 		public override IntPtr Handle {
-			get { return IntPtr.Zero; }
+			get {
+				if (capiCertContext == IntPtr.Zero && _cert != null) {
+					try {
+						byte[] rawData = _cert.RawData;
+						if (rawData != null && rawData.Length > 0) {
+							capiCertContext = CertCreateCertificateContext (
+								X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
+								rawData, rawData.Length);
+							if (capiCertContext != IntPtr.Zero && _cert.RSA != null)
+								BindPrivateKeyToCertContext (_cert.RSA);
+						}
+					} catch {
+					}
+				}
+				return capiCertContext;
+			}
+		}
+
+		void BindPrivateKeyToCertContext (RSA rsa)
+		{
+			try {
+				RSAParameters rsaParams = rsa.ExportParameters (true);
+				var csp = new RSACryptoServiceProvider ();
+				csp.ImportParameters (rsaParams);
+				CspKeyContainerInfo info = csp.CspKeyContainerInfo;
+
+				var keyProvInfo = new CRYPT_KEY_PROV_INFO ();
+				keyProvInfo.pwszContainerName = info.KeyContainerName;
+				keyProvInfo.pwszProvName = info.ProviderName;
+				keyProvInfo.dwProvType = info.ProviderType;
+				keyProvInfo.dwFlags = 0;
+				keyProvInfo.cProvParam = 0;
+				keyProvInfo.rgProvParam = IntPtr.Zero;
+				keyProvInfo.dwKeySpec = (int)info.KeyNumber;
+
+				IntPtr pInfo = Marshal.AllocHGlobal (Marshal.SizeOf (keyProvInfo));
+				try {
+					Marshal.StructureToPtr (keyProvInfo, pInfo, false);
+					CertSetCertificateContextProperty (capiCertContext,
+						CERT_KEY_PROV_INFO_PROP_ID, 0, pInfo);
+				} finally {
+					Marshal.FreeHGlobal (pInfo);
+				}
+			} catch {
+			}
 		}
 
 		public override IntPtr GetNativeAppleCertificate ()
@@ -298,8 +371,12 @@ namespace System.Security.Cryptography.X509Certificates
 			}
 		}
 
-		public override void Reset () 
+		public override void Reset ()
 		{
+			if (capiCertContext != IntPtr.Zero) {
+				CertFreeCertificateContext (capiCertContext);
+				capiCertContext = IntPtr.Zero;
+			}
 			_cert = null;
 			_publicKey = null;
 			if (intermediateCerts != null) {
