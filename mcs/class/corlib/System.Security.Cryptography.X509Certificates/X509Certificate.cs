@@ -132,7 +132,20 @@ namespace System.Security.Cryptography.X509Certificates
 
 		public X509Certificate (IntPtr handle)
 		{
-			throw new PlatformNotSupportedException ("Initializing `X509Certificate` from native handle is not supported.");
+			if (handle == IntPtr.Zero)
+				throw new ArgumentException ("Invalid handle");
+			/* Read DER-encoded certificate bytes from the CERT_CONTEXT structure.
+			 * CERT_CONTEXT layout: dwCertEncodingType (4), pad (4),
+			 *   pbCertEncoded (IntPtr), cbCertEncoded (4), pCertInfo (IntPtr), hCertStore (IntPtr)
+			 */
+			int ptrSize = IntPtr.Size;
+			IntPtr pbCertEncoded = Marshal.ReadIntPtr (handle, ptrSize); // offset after dwCertEncodingType + padding
+			int cbCertEncoded = Marshal.ReadInt32 (handle, ptrSize + IntPtr.Size); // after pbCertEncoded
+			if (pbCertEncoded == IntPtr.Zero || cbCertEncoded <= 0 || cbCertEncoded > 0x100000)
+				throw new CryptographicException ("Invalid CERT_CONTEXT");
+			byte[] rawData = new byte[cbCertEncoded];
+			Marshal.Copy (pbCertEncoded, rawData, 0, cbCertEncoded);
+			impl = X509Helper.Import (rawData);
 		}
 
 		internal X509Certificate (X509CertificateImpl impl)

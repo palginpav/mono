@@ -42,16 +42,18 @@ namespace System.Security.Permissions {
 
 		// Constructors
 
-		public KeyContainerPermission (PermissionState state) 
+		public KeyContainerPermission (PermissionState state)
 		{
 			if (CheckPermissionState (state, true) == PermissionState.Unrestricted) {
 				_flags = KeyContainerPermissionFlags.AllFlags;
 			}
+			_accessEntries = new KeyContainerPermissionAccessEntryCollection ();
 		}
 
 		public KeyContainerPermission (KeyContainerPermissionFlags flags)
 		{
 			SetFlags (flags);
+			_accessEntries = new KeyContainerPermissionAccessEntryCollection ();
 		}
 
 		public KeyContainerPermission (KeyContainerPermissionFlags flags, KeyContainerPermissionAccessEntry[] accessList) 
@@ -170,7 +172,8 @@ namespace System.Security.Permissions {
 
 		private void SetFlags (KeyContainerPermissionFlags flags)
 		{
-			if ((flags & KeyContainerPermissionFlags.AllFlags) == 0) {
+			if (flags != KeyContainerPermissionFlags.NoFlags &&
+			    (flags & ~KeyContainerPermissionFlags.AllFlags) != 0) {
 				string msg = String.Format (Locale.GetText ("Invalid enum {0}"), flags);
 				throw new ArgumentException (msg, "KeyContainerPermissionFlags");
 			}

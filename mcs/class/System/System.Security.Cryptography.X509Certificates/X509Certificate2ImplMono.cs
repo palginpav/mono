@@ -58,6 +58,9 @@ namespace System.Security.Cryptography.X509Certificates
 		const int X509_ASN_ENCODING = 0x00000001;
 		const int PKCS_7_ASN_ENCODING = 0x00010000;
 		const int CERT_KEY_PROV_INFO_PROP_ID = 2;
+		const int PROV_RSA_FULL = 1;
+		const int CRYPT_NEWKEYSET = 0x00000008;
+		const int AT_KEYEXCHANGE = 1;
 
 		[DllImport ("crypt32", SetLastError = true)]
 		static extern IntPtr CertCreateCertificateContext (
@@ -71,6 +74,26 @@ namespace System.Security.Cryptography.X509Certificates
 		[return: MarshalAs (UnmanagedType.Bool)]
 		static extern bool CertSetCertificateContextProperty (
 			IntPtr pCertContext, int dwPropId, int dwFlags, IntPtr pvData);
+
+		[DllImport ("advapi32", SetLastError = true, CharSet = CharSet.Unicode)]
+		[return: MarshalAs (UnmanagedType.Bool)]
+		static extern bool CryptAcquireContextW (
+			out IntPtr phProv, string szContainer, string szProvider,
+			int dwProvType, int dwFlags);
+
+		[DllImport ("advapi32", SetLastError = true)]
+		[return: MarshalAs (UnmanagedType.Bool)]
+		static extern bool CryptImportKey (
+			IntPtr hProv, byte[] pbData, int dwDataLen,
+			IntPtr hPubKey, int dwFlags, out IntPtr phKey);
+
+		[DllImport ("advapi32", SetLastError = true)]
+		[return: MarshalAs (UnmanagedType.Bool)]
+		static extern bool CryptDestroyKey (IntPtr hKey);
+
+		[DllImport ("advapi32", SetLastError = true)]
+		[return: MarshalAs (UnmanagedType.Bool)]
+		static extern bool CryptReleaseContext (IntPtr hProv, int dwFlags);
 
 		[StructLayout (LayoutKind.Sequential, CharSet = CharSet.Unicode)]
 		struct CRYPT_KEY_PROV_INFO {
@@ -116,22 +139,67 @@ namespace System.Security.Cryptography.X509Certificates
 			}
 		}
 
+		static byte[] BuildPrivateKeyBlob (RSAParameters p)
+		{
+			int bitLen = p.Modulus.Length * 8;
+			int halfLen = p.Modulus.Length / 2;
+			using (var ms = new System.IO.MemoryStream ()) {
+				var bw = new System.IO.BinaryWriter (ms);
+				bw.Write ((byte)0x07); bw.Write ((byte)0x02);
+				bw.Write ((ushort)0); bw.Write ((uint)0xa400);
+				bw.Write ((uint)0x32415352); bw.Write ((uint)bitLen);
+				uint pubExp = 0;
+				for (int i = 0; i < p.Exponent.Length; i++)
+					pubExp |= (uint)p.Exponent[i] << (8 * (p.Exponent.Length - 1 - i));
+				bw.Write (pubExp);
+				WriteReversed (bw, p.Modulus);
+				WriteReversed (bw, p.P, halfLen);
+				WriteReversed (bw, p.Q, halfLen);
+				WriteReversed (bw, p.DP, halfLen);
+				WriteReversed (bw, p.DQ, halfLen);
+				WriteReversed (bw, p.InverseQ, halfLen);
+				WriteReversed (bw, p.D);
+				return ms.ToArray ();
+			}
+		}
+
+		static void WriteReversed (System.IO.BinaryWriter bw, byte[] data, int len = 0)
+		{
+			if (data == null) return;
+			if (len == 0) len = data.Length;
+			for (int i = data.Length - 1; i >= 0; i--) bw.Write (data[i]);
+			for (int i = data.Length; i < len; i++) bw.Write ((byte)0);
+		}
+
 		void BindPrivateKeyToCertContext (RSA rsa)
 		{
 			try {
 				RSAParameters rsaParams = rsa.ExportParameters (true);
-				var csp = new RSACryptoServiceProvider ();
-				csp.ImportParameters (rsaParams);
-				CspKeyContainerInfo info = csp.CspKeyContainerInfo;
+				string containerName = Guid.NewGuid ().ToString ();
+				string provName = "Microsoft Enhanced RSA and AES Cryptographic Provider";
+				int provType = 24; // PROV_RSA_AES
+
+				IntPtr hProv;
+				if (!CryptAcquireContextW (out hProv, containerName, provName,
+					provType, CRYPT_NEWKEYSET))
+					return;
+
+				byte[] keyBlob = BuildPrivateKeyBlob (rsaParams);
+				if (keyBlob != null) {
+					IntPtr hKey;
+					if (CryptImportKey (hProv, keyBlob, keyBlob.Length, IntPtr.Zero, 0, out hKey))
+						CryptDestroyKey (hKey);
+				}
+				CryptReleaseContext (hProv, 0);
 
 				var keyProvInfo = new CRYPT_KEY_PROV_INFO ();
-				keyProvInfo.pwszContainerName = info.KeyContainerName;
-				keyProvInfo.pwszProvName = info.ProviderName;
-				keyProvInfo.dwProvType = info.ProviderType;
+				keyProvInfo.pwszContainerName = containerName;
+				keyProvInfo.pwszProvName = provName;
+				keyProvInfo.dwProvType = provType;
 				keyProvInfo.dwFlags = 0;
 				keyProvInfo.cProvParam = 0;
 				keyProvInfo.rgProvParam = IntPtr.Zero;
-				keyProvInfo.dwKeySpec = (int)info.KeyNumber;
+				keyProvInfo.dwKeySpec = AT_KEYEXCHANGE;
 
 				IntPtr pInfo = Marshal.AllocHGlobal (Marshal.SizeOf (keyProvInfo));
 				try {

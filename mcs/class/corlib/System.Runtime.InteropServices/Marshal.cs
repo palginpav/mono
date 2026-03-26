@@ -540,10 +540,6 @@ namespace System.Runtime.InteropServices
 		{
 			if (e == null) return 0;
 
-			/* Log PlatformNotSupportedException with current call stack for diagnostics */
-			if (e._HResult == unchecked((int)0x80131539))
-				Console.Error.WriteLine ("[PlatformNotSupported] " + e.Message + "\n" + Environment.StackTrace);
-
 #if FEATURE_COMINTEROP
 			var errorInfo = new ManagedErrorInfo(e);
 			SetErrorInfo (0, errorInfo);
@@ -556,11 +552,11 @@ namespace System.Runtime.InteropServices
 		[ReliabilityContract (Consistency.WillNotCorruptState, Cer.Success)]
 		public static int GetHRForLastWin32Error()
 		{
-#if FULL_AOT_RUNTIME
-			throw new PlatformNotSupportedException ();
-#else
-			throw new NotImplementedException ();
-#endif
+			int error = GetLastWin32Error ();
+			if (error <= 0)
+				return error;
+			// FACILITY_WIN32 = 7, convert Win32 error to HRESULT
+			return unchecked((int)(0x80070000 | (uint)error));
 		}
 
 #if !FULL_AOT_RUNTIME && !MONOTOUCH

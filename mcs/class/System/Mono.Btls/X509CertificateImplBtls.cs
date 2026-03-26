@@ -56,6 +56,7 @@ namespace Mono.Btls
 		const int PKCS_7_ASN_ENCODING = 0x00010000;
 		const int CERT_KEY_PROV_INFO_PROP_ID = 2;
 		const int PROV_RSA_FULL = 1;
+		const int PROV_RSA_AES = 24;
 		const int CRYPT_NEWKEYSET = 0x00000008;
 		const int AT_KEYEXCHANGE = 1;
 		const int AT_SIGNATURE = 2;
@@ -189,22 +190,10 @@ namespace Mono.Btls
 							capiCertContext = CertCreateCertificateContext (
 								X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
 								rawData, rawData.Length);
-							if (capiCertContext == IntPtr.Zero) {
-								int err = Marshal.GetLastWin32Error ();
-								Console.Error.WriteLine (
-									"[wine-mono] CertCreateCertificateContext failed: err=" + err +
-									" derLen=" + rawData.Length);
-							}
 							if (capiCertContext != IntPtr.Zero && nativePrivateKey != null)
 								BindPrivateKeyToCertContext ();
-						} else {
-							Console.Error.WriteLine (
-								"[wine-mono] Handle: GetRawData returned " +
-								(rawData == null ? "null" : "empty"));
 						}
-					} catch (Exception ex) {
-						Console.Error.WriteLine (
-							"[wine-mono] Handle exception: " + ex.GetType ().Name + ": " + ex.Message);
+					} catch {
 					}
 				}
 				if (capiCertContext != IntPtr.Zero)
@@ -231,16 +220,35 @@ namespace Mono.Btls
 
 				RSAParameters rsaParams = rsa.ExportParameters (true);
 
-				/* Use RSACryptoServiceProvider which automatically creates a key container */
-				var csp = new RSACryptoServiceProvider ();
-				csp.ImportParameters (rsaParams);
+				/* Create a persistent key container via CryptoAPI directly.
+				 * Mono's RSACryptoServiceProvider uses managed crypto, not Wine's
+				 * rsaenh, so we must P/Invoke CryptAcquireContext + CryptImportKey. */
+				capiKeyContainer = Guid.NewGuid ().ToString ();
+				/* Use PROV_RSA_AES (type 24) which supports SHA-256/384/512.
+				 * PROV_RSA_FULL (type 1) only supports SHA-1 and MD5. */
+				string provName = "Microsoft Enhanced RSA and AES Cryptographic Provider";
+				int provType = PROV_RSA_AES;
+				int keySpec = AT_KEYEXCHANGE;
 
-				/* Get the container name from the CSP */
-				CspKeyContainerInfo info = csp.CspKeyContainerInfo;
-				capiKeyContainer = info.KeyContainerName;
-				string provName = info.ProviderName;
-				int provType = info.ProviderType;
-				int keySpec = (int)info.KeyNumber;
+				IntPtr hProv;
+				if (!CryptAcquireContextW (out hProv, capiKeyContainer, provName,
+					provType, CRYPT_NEWKEYSET))
+					return;
+
+				/* Build PRIVATEKEYBLOB for CryptImportKey */
+				byte[] keyBlob = BuildPrivateKeyBlob (rsaParams);
+				if (keyBlob == null) {
+					CryptReleaseContext (hProv, 0);
+					return;
+				}
+
+				IntPtr hKey;
+				if (!CryptImportKey (hProv, keyBlob, keyBlob.Length, IntPtr.Zero, 0, out hKey)) {
+					CryptReleaseContext (hProv, 0);
+					return;
+				}
+				CryptDestroyKey (hKey);
+				CryptReleaseContext (hProv, 0);
 
 				/* Set CERT_KEY_PROV_INFO on the cert context */
 				var keyProvInfo = new CRYPT_KEY_PROV_INFO ();
@@ -264,6 +272,51 @@ namespace Mono.Btls
 				/* If private key binding fails, cert context still works for
 				 * public-key-only operations (verification, etc.) */
 			}
+		}
+
+		static byte[] BuildPrivateKeyBlob (RSAParameters p)
+		{
+			/* Build a PRIVATEKEYBLOB (Microsoft RSA private key format):
+			 * BLOBHEADER (8 bytes) + RSAPUBKEY (12 bytes) + key material */
+			int bitLen = p.Modulus.Length * 8;
+			int halfLen = p.Modulus.Length / 2;
+
+			using (var ms = new System.IO.MemoryStream ()) {
+				var bw = new System.IO.BinaryWriter (ms);
+				/* BLOBHEADER */
+				bw.Write ((byte)0x07);   // bType = PRIVATEKEYBLOB
+				bw.Write ((byte)0x02);   // bVersion = CUR_BLOB_VERSION
+				bw.Write ((ushort)0);    // reserved
+				bw.Write ((uint)0xa400); // aiKeyAlg = CALG_RSA_KEYX
+				/* RSAPUBKEY */
+				bw.Write ((uint)0x32415352); // magic = "RSA2"
+				bw.Write ((uint)bitLen);     // bitlen
+				/* pubexp — stored as little-endian uint32 */
+				uint pubExp = 0;
+				for (int i = 0; i < p.Exponent.Length; i++)
+					pubExp |= (uint)p.Exponent[i] << (8 * (p.Exponent.Length - 1 - i));
+				bw.Write (pubExp);
+				/* All following are in little-endian byte order (reversed from .NET big-endian) */
+				WriteReversed (bw, p.Modulus);
+				WriteReversed (bw, p.P, halfLen);
+				WriteReversed (bw, p.Q, halfLen);
+				WriteReversed (bw, p.DP, halfLen);
+				WriteReversed (bw, p.DQ, halfLen);
+				WriteReversed (bw, p.InverseQ, halfLen);
+				WriteReversed (bw, p.D);
+				return ms.ToArray ();
+			}
+		}
+
+		static void WriteReversed (System.IO.BinaryWriter bw, byte[] data, int targetLen = 0)
+		{
+			if (data == null) return;
+			if (targetLen == 0) targetLen = data.Length;
+			/* Pad with zeros if needed */
+			for (int i = data.Length - 1; i >= 0; i--)
+				bw.Write (data[i]);
+			for (int i = data.Length; i < targetLen; i++)
+				bw.Write ((byte)0);
 		}
 
 		public override IntPtr GetNativeAppleCertificate ()
