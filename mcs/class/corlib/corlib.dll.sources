@@ -1572,6 +1572,7 @@ corefx/BinaryEnums.cs
 ../../../external/corefx/src/Common/src/CoreLib/System/Threading/SendOrPostCallback.cs
 ../referencesource/mscorlib/system/threading/SpinLock.cs
 ReferenceSources/CdsSyncEtwBCLProvider.cs
+ReferenceSources/HashHelpers.cs
 ../referencesource/mscorlib/system/threading/synchronizationcontext.cs
 ../../../external/corefx/src/Common/src/CoreLib/System/Threading/SynchronizationLockException.cs
 ../referencesource/mscorlib/system/threading/thread.cs
@@ -1736,7 +1737,7 @@ corert/RuntimeAugments.cs
 ../../../external/corefx/src/Common/src/CoreLib/System/Buffers/TlsOverPerCoreLockedStacksArrayPool.cs
 ../../../external/corefx/src/Common/src/CoreLib/System/Buffers/Utilities.cs
 
-../../../external/corefx/src/Common/src/CoreLib/System/Collections/HashHelpers.cs
+# HashHelpers moved to ReferenceSources/HashHelpers.cs (merged with Windows compat additions)
 ../../../external/corefx/src/Common/src/CoreLib/System/Collections/Comparer.cs
 ../../../external/corefx/src/Common/src/CoreLib/System/Collections/DictionaryEntry.cs
 ../../../external/corefx/src/Common/src/CoreLib/System/Collections/ICollection.cs

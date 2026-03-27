@@ -70,6 +70,15 @@ namespace System.Reflection.Emit {
 		private ParameterBuilder[] pinfo;
 		internal bool creating;
 		private DynamicILInfo il_info;
+		private bool m_profileAPICheck;
+
+		// Required by Windows .NET Framework System.Core.dll Expression.Lambda.Compile()
+		[System.Runtime.CompilerServices.FriendAccessAllowed]
+		internal bool ProfileAPICheck
+		{
+			get { return m_profileAPICheck; }
+			set { m_profileAPICheck = value; }
+		}
 
 		public DynamicMethod (string name, Type returnType, Type[] parameterTypes, Module m) : this (name, returnType, parameterTypes, m, false) {
 		}
