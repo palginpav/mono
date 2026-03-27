@@ -8,6 +8,7 @@ System.Configuration.Internal/IConfigErrorInfo.cs
 System.Configuration.Internal/IConfigSystem.cs
 System.Configuration.Internal/IConfigurationManagerHelper.cs
 System.Configuration.Internal/IConfigurationManagerInternal.cs
+System.Configuration.Internal/ConfigurationManagerInternal.cs
 System.Configuration.Internal/IInternalConfigClientHost.cs
 System.Configuration.Internal/IInternalConfigConfigurationFactory.cs
 System.Configuration.Internal/IInternalConfigHost.cs
