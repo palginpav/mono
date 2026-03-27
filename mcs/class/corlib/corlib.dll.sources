@@ -1571,6 +1571,7 @@ corefx/BinaryEnums.cs
 ../referencesource/mscorlib/system/threading/SemaphoreSlim.cs
 ../../../external/corefx/src/Common/src/CoreLib/System/Threading/SendOrPostCallback.cs
 ../referencesource/mscorlib/system/threading/SpinLock.cs
+../referencesource/mscorlib/system/threading/CDSsyncETWBCLProvider.cs
 ../referencesource/mscorlib/system/threading/synchronizationcontext.cs
 ../../../external/corefx/src/Common/src/CoreLib/System/Threading/SynchronizationLockException.cs
 ../referencesource/mscorlib/system/threading/thread.cs
