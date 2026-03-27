@@ -8,5 +8,8 @@ namespace System.Runtime.Versioning
 		public static bool TargetsAtLeast_Desktop_V4_5_3 => true;
 		public static bool TargetsAtLeast_Desktop_V4_5_4 => true;
 		public static bool TargetsAtLeast_Desktop_V5_0 => false;
+
+		public static TargetFrameworkId AppWasBuiltForFramework => TargetFrameworkId.NetFramework;
+		public static int AppWasBuiltForVersion => 40805;
 	}
 }
