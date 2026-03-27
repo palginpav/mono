@@ -127,7 +127,7 @@ namespace System.Net.Mail {
 		}
 
 		public string Body {
-			get { return body; }
+			get { return body ?? String.Empty; }
 			set {
 				// autodetect suitable body encoding (ASCII or UTF-8), if it is not initialized yet.
 				if (value != null && bodyEncoding == null)
@@ -216,7 +216,7 @@ namespace System.Net.Mail {
 		}
 
 		public string Subject {
-			get { return subject; }
+			get { return subject ?? String.Empty; }
 			set {
 				if (value != null && subjectEncoding == null)
 					subjectEncoding = GuessEncoding (value);
