@@ -28,8 +28,43 @@ namespace System.Net {
 			}
 		}
 
+		[System.Runtime.CompilerServices.FriendAccessAllowed]
+		internal static TraceSource Http {
+			get {
+				return null;
+			}
+		}
+
+		internal static TraceSource RequestCache {
+			get {
+				return null;
+			}
+		}
+
+		internal static TraceSource WebSockets {
+			get {
+				return null;
+			}
+		}
+
+		[Conditional ("TRACE")]
+		internal static void Associate(TraceSource traceSource, object first, object second) {
+		}
+
+		internal static string GetObjectLogHash(object obj) {
+			return obj != null ? obj.GetHashCode().ToString() : "(null)";
+		}
+
+		[Conditional ("TRACE")]
+		internal static void Dump(TraceSource traceSource, object obj, string method, byte[] buffer, int offset, int length) {
+		}
+
 		[Conditional ("TRACE")]
 		internal static void Enter(TraceSource traceSource, object obj, string method, object paramObject) {
+		}
+
+		[Conditional ("TRACE")]
+		internal static void Enter(TraceSource traceSource, object obj, string method, string param) {
 		}
 
 		[Conditional ("TRACE")]
@@ -46,6 +81,10 @@ namespace System.Net {
 
 		[Conditional ("TRACE")]
 		internal static void Exit(TraceSource traceSource, object obj, string method, object retObject) {
+		}
+
+		[Conditional ("TRACE")]
+		internal static void Exit(TraceSource traceSource, object obj, string method, string retValue) {
 		}
 
 		[Conditional ("TRACE")]

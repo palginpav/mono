@@ -397,6 +397,12 @@ namespace System.Net
 			}
 		}
 
+		// Windows .NET Framework System.Net.Http.dll uses plural form
+		internal static void CloseConnectionGroups (string connectionGroupName)
+		{
+			CloseConnectionGroup (connectionGroupName);
+		}
+
 		internal static void RemoveServicePoint (ServicePoint sp)
 		{
 			servicePoints.TryRemove (sp.Key, out var value);
