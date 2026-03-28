@@ -997,9 +997,10 @@ coreclr/Math.CoreCLR.cs
 ../../../external/corefx/src/Common/src/CoreLib/System/NotImplementedException.cs
 ../../../external/corefx/src/Common/src/CoreLib/System/NotSupportedException.cs
 ../../../external/corefx/src/Common/src/CoreLib/System/NullReferenceException.cs
-../../../external/corefx/src/Common/src/CoreLib/System/Number.Formatting.cs
-../../../external/corefx/src/Common/src/CoreLib/System/Number.NumberBuffer.cs
-../../../external/corert/src/System.Private.CoreLib/shared/System/Number.Parsing.cs
+ReferenceSources/NumberFormattingPatched.cs
+ReferenceSources/NumberBuffer.cs
+ReferenceSources/NumberParsingPatched.cs
+ReferenceSources/NumberCompat.cs
 ../../../external/corert/src/System.Private.CoreLib/src/System/Number.Unix.cs
 ../../../external/corert/src/System.Private.CoreLib/src/System/Number.CoreRT.cs
 ../../../external/corefx/src/Common/src/CoreLib/System/ObjectDisposedException.cs
