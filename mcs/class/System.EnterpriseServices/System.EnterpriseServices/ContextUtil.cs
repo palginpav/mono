@@ -77,8 +77,7 @@ namespace System.EnterpriseServices {
 		}
 
 		public static bool IsInTransaction {
-			[MonoTODO]
-			get { throw new NotImplementedException (); }
+			get { return false; }
 		}
 
 		public static bool IsSecurityEnabled {
@@ -103,8 +102,7 @@ namespace System.EnterpriseServices {
 		}
 
 		public static Transaction SystemTransaction {
-			[MonoTODO]
-			get { throw new NotImplementedException (); }
+			get { return null; }
 		}
 
 		public static Guid TransactionId {
@@ -140,10 +138,10 @@ namespace System.EnterpriseServices {
 			throw new NotImplementedException ();
 		}
 
-		[MonoTODO]
 		public static bool IsDefaultContext ()
 		{
-			throw new NotImplementedException ();
+			// Wine/mono always runs in default COM+ context (no ServicedComponent)
+			return true;
 		}
 
 		[MonoTODO]
