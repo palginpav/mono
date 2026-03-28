@@ -1,32 +1,11 @@
 //
-// ExtendedProtectionPolicy.cs 
+// ExtendedProtectionPolicy.cs
 //
-// Authors:
-//      Atsushi Enomoto  <atsushi@ximian.com>
+// Implements Extended Protection for Authentication.
+// Windows System.ServiceModel.dll HttpTransportBindingElement accesses
+// PolicyEnforcement, ProtectionScenario and other properties.
 //
 
-//
-// Copyright (C) 2010 Novell, Inc (http://novell.com)
-//
-// Permission is hereby granted, free of charge, to any person obtaining
-// a copy of this software and associated documentation files (the
-// "Software"), to deal in the Software without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Software, and to
-// permit persons to whom the Software is furnished to do so, subject to
-// the following conditions:
-// 
-// The above copyright notice and this permission notice shall be
-// included in all copies or substantial portions of the Software.
-// 
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-// EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-// NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-// LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-// OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-// WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-//
 using System;
 using System.Collections;
 using System.ComponentModel;
@@ -35,68 +14,78 @@ using System.Security.Permissions;
 
 namespace System.Security.Authentication.ExtendedProtection
 {
-	[MonoTODO]
 	[Serializable]
 	[TypeConverter (typeof (ExtendedProtectionPolicyTypeConverter))]
 	public class ExtendedProtectionPolicy : ISerializable
 	{
-		[MonoTODO ("Not implemented.")]
+		PolicyEnforcement _policyEnforcement;
+		ProtectionScenario _protectionScenario;
+		ServiceNameCollection _customServiceNames;
+		ChannelBinding _customChannelBinding;
+
 		public ExtendedProtectionPolicy (PolicyEnforcement policyEnforcement)
 		{
-			// Do not throw NotImplementedException - System.ServiceModel.Channels.HttpTransportBindingElement tests
-			// instantiate this type
+			_policyEnforcement = policyEnforcement;
+			_protectionScenario = ProtectionScenario.TransportSelected;
 		}
 
 		public ExtendedProtectionPolicy (PolicyEnforcement policyEnforcement, ChannelBinding customChannelBinding)
 		{
-			throw new NotImplementedException ();
+			_policyEnforcement = policyEnforcement;
+			_customChannelBinding = customChannelBinding;
+			_protectionScenario = ProtectionScenario.TransportSelected;
 		}
 
 		public ExtendedProtectionPolicy (PolicyEnforcement policyEnforcement, ProtectionScenario protectionScenario, ICollection customServiceNames)
 		{
-			throw new NotImplementedException ();
+			_policyEnforcement = policyEnforcement;
+			_protectionScenario = protectionScenario;
+			_customServiceNames = customServiceNames != null ? new ServiceNameCollection (customServiceNames) : null;
 		}
 
 		public ExtendedProtectionPolicy (PolicyEnforcement policyEnforcement, ProtectionScenario protectionScenario, ServiceNameCollection customServiceNames)
 		{
-			throw new NotImplementedException ();
+			_policyEnforcement = policyEnforcement;
+			_protectionScenario = protectionScenario;
+			_customServiceNames = customServiceNames;
 		}
 
 		protected ExtendedProtectionPolicy (SerializationInfo info, StreamingContext context)
 		{
-			throw new NotImplementedException ();
+			_policyEnforcement = (PolicyEnforcement) info.GetInt32 ("PolicyEnforcement");
+			_protectionScenario = (ProtectionScenario) info.GetInt32 ("ProtectionScenario");
 		}
 
 		public ChannelBinding CustomChannelBinding {
-			get { throw new NotImplementedException (); }
+			get { return _customChannelBinding; }
 		}
 
 		public ServiceNameCollection CustomServiceNames {
-			get { throw new NotImplementedException (); }
+			get { return _customServiceNames; }
 		}
 
 		public static bool OSSupportsExtendedProtection {
-			get { throw new NotImplementedException (); }
+			get { return false; }
 		}
 
 		public PolicyEnforcement PolicyEnforcement {
-			get { throw new NotImplementedException (); }
+			get { return _policyEnforcement; }
 		}
 
 		public ProtectionScenario ProtectionScenario {
-			get { throw new NotImplementedException (); }
+			get { return _protectionScenario; }
 		}
 
-		[MonoTODO]
 		public override string ToString ()
 		{
-			return base.ToString ();
+			return _policyEnforcement.ToString ();
 		}
 
 		[SecurityPermission (SecurityAction.LinkDemand, SerializationFormatter = true)]
 		void ISerializable.GetObjectData (SerializationInfo info, StreamingContext context)
 		{
-			throw new NotImplementedException ();
+			info.AddValue ("PolicyEnforcement", (int) _policyEnforcement);
+			info.AddValue ("ProtectionScenario", (int) _protectionScenario);
 		}
 	}
 }
