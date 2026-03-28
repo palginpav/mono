@@ -16,9 +16,13 @@ System.Configuration.Internal/IInternalConfigRecord.cs
 System.Configuration.Internal/IInternalConfigRoot.cs
 System.Configuration.Internal/IInternalConfigSettingsFactory.cs
 System.Configuration.Internal/IInternalConfigSystem.cs
+System.Configuration.Internal/ConfigSystem.cs
+System.Configuration.Internal/InternalConfigRoot.cs
+System.Configuration.Internal/InternalConfigHost.cs
 System.Configuration.Internal/InternalConfigEventArgs.cs
 System.Configuration.Internal/InternalConfigEventHandler.cs
 System.Configuration.Internal/StreamChangeCallback.cs
+System.Configuration/ClientConfigurationHost.cs
 System.Configuration.Provider/ProviderBase.cs
 System.Configuration.Provider/ProviderException.cs
 System.Configuration.Provider/ProviderCollection.cs
