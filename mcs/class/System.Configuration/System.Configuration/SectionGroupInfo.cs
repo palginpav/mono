@@ -342,17 +342,61 @@ namespace System.Configuration
 				data = current.groups [reader.LocalName];
 			if (data != null)
 				return data;
-			if (current.groups == null)
-				return null;
-			// It might be a section in descendant sectionGroups
-			foreach (string key in current.groups.AllKeys) {
-				data = GetConfigInfo (reader, (SectionGroupInfo) current.groups [key]);
-				if (data != null)
-					return data;
+			if (current.groups != null) {
+				// It might be a section in descendant sectionGroups
+				foreach (string key in current.groups.AllKeys) {
+					data = GetConfigInfo (reader, (SectionGroupInfo) current.groups [key]);
+					if (data != null)
+						return data;
+				}
 			}
-			
-			// It might be in the root section group
+
+			// Implicit built-in sections (.NET Framework compat)
+			data = GetImplicitSection (reader.LocalName);
+			if (data != null) {
+				AddChild (data);
+				return data;
+			}
+
 			return null;
+		}
+
+		internal static ConfigInfo GetImplicitSection (string name)
+		{
+			string typeName = null;
+			if (name == "appSettings")
+				typeName = "System.Configuration.AppSettingsSection, System.Configuration, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a";
+			else if (name == "connectionStrings")
+				typeName = "System.Configuration.ConnectionStringsSection, System.Configuration, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a";
+			if (typeName == null)
+				return null;
+			var info = new SectionInfo ();
+			info.Name = name;
+			info.TypeName = typeName;
+			return info;
+		}
+
+		// Ensure built-in sections exist (appSettings, connectionStrings)
+		// so they work without explicit declaration in machine.config,
+		// matching .NET Framework behavior where these are implicit.
+		internal void EnsureImplicitSections ()
+		{
+			if (sections == null)
+				sections = new ConfigInfoCollection ();
+			AddImplicitSection ("appSettings",
+				"System.Configuration.AppSettingsSection, System.Configuration, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a");
+			AddImplicitSection ("connectionStrings",
+				"System.Configuration.ConnectionStringsSection, System.Configuration, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a");
+		}
+
+		void AddImplicitSection (string name, string typeName)
+		{
+			if (sections [name] != null)
+				return;
+			var info = new SectionInfo ();
+			info.Name = name;
+			info.TypeName = typeName;
+			sections.Add (name, info);
 		}
 
 		internal override void Merge (ConfigInfo newData)

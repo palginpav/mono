@@ -132,7 +132,7 @@ namespace System.Configuration {
 				rootGroup = new SectionGroupInfo ();
 				rootGroup.StreamName = streamName;
 			}
-			
+
 			try {
 				if (streamName != null)
 					Load ();

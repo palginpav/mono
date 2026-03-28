@@ -64,6 +64,12 @@ namespace System.Configuration
 				ConfigurationSection sec = BaseGet (name) as ConfigurationSection;
 				if (sec == null) {
 					SectionInfo secData = group.Sections [name] as SectionInfo;
+					if (secData == null) {
+						// Implicit built-in sections (.NET Framework compat)
+						secData = SectionGroupInfo.GetImplicitSection (name) as SectionInfo;
+						if (secData != null)
+							group.AddChild (secData);
+					}
 					if (secData == null) return null;
 					sec = config.GetSectionInstance (secData, true);
 					if (sec == null) return null;
