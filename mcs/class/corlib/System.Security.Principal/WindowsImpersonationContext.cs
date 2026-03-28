@@ -42,10 +42,16 @@ namespace System.Security.Principal {
 
 		internal WindowsImpersonationContext (IntPtr token)
 		{
-			// we get a copy to control it's lifetime
 			_token = DuplicateToken (token);
-			if (!SetCurrentToken (token)) {
-				throw new SecurityException ("Couldn't impersonate token.");
+			if (token == IntPtr.Zero) {
+				// IntPtr.Zero means "revert to process identity" (.NET Framework behavior)
+				if (!RevertToSelf ()) {
+					throw new SecurityException ("Couldn't impersonate token.");
+				}
+			} else {
+				if (!SetCurrentToken (token)) {
+					throw new SecurityException ("Couldn't impersonate token.");
+				}
 			}
 			undo = false;
 		}
